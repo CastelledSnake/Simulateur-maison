@@ -1,21 +1,21 @@
-# PREMIERE SECTION
 # from collections import deque, defaultdict
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Union
-from random import Random
+from typing import List, Tuple, Union, Set
+from random import Random, sample
 from enum import Enum, auto
 from matplotlib import pyplot as plt
 from numpy import gradient, inf, log10, floor
 # from bisect import insort
 from colorama import Back, Fore, Style
-# FIN PREMIERE SECTION
+from os import makedirs
+from os.path import isdir
+from csv import writer  # , reader
 
 
-# DEUXIÈME SECTION
-def pp_unit(value: int or float, unit: str, round_size: int = 3):
+def pp_value(value: int or float, unit: str, round_size: int = 3):
     # TODO : recoder le simulateur avec des entiers uniquement, de précision jusqu'à 10**-30 par rapport aux unités.
     """
-    Pretty-prints an integer with adequate unit, multiple and size.
+    Pretty-prints a value with adequate unit, multiple and size.
     :param value: The numerical value to be printed (int of float)
     :param unit: The physical unit of value (str)
     :param round_size: The limit to round the number to print
@@ -59,7 +59,7 @@ def pp_unit(value: int or float, unit: str, round_size: int = 3):
         return f'{round(value * 1e9, round_size)} n{unit}'
     elif value >= 1e-12:    # pico
         return f'{round(value * 1e12, round_size)} p{unit}'
-    elif value >= 1e-15:     # femto
+    elif value >= 1e-15:    # femto
         return f'{round(value * 1e15, round_size)} f{unit}'
     elif value >= 1e-18:    # atto
         return f'{round(value * 1e18, round_size)} a{unit}'
@@ -79,7 +79,7 @@ def print_names_from_list(liste: List) -> str:
     """
     Print a list of special items (here, Tasks) such as only the "name" field of each
     element is printed, and not the entire __str__ version of it.
-    :param liste: A list of elements such as each of these elements have a field "name".
+    :param liste: A list of elements such as each of these elements has a field "name".
     :return: A string nicely printing each element's name.
     """
     string: str = "["
@@ -91,32 +91,42 @@ def print_names_from_list(liste: List) -> str:
     return string
 
 
-def print_hardware_list(liste: List) -> str:
+def bisect_for_lol(sorted_list: List, item: List, position: int):
     """
-    Nicely print a list of hardware devices (Node and Storage).
-    :param liste: A list of elements to print.
-    :return: a string.
+    returns one insertion point of list 'item' in the sorted list of lists 'l', in order to keep 'l' sorted according
+    to the key given as 'position' : the index of the element to be watched for when comparing the lists.
+    :param sorted_list: A list of lists supposed sorted according to their element at index 'position'.
+    :param item: The list for which we should find the appropriate position in 'l'.
+    :param position: The index of the sublists to be taken into account when comparing.
+    :return: The appropriate index for 'item' in 'l'.
     """
-    string = "["
-    for k in range(len(liste)):
-        string += f'{liste[k]}'
-        if k < len(liste) - 1:
-            string += ', '
-    string += ']'
-    return string
-
+    if len(sorted_list) == 1:
+        if sorted_list[0][position] < item[position]:
+            return 1
+        else:
+            return 0
+    n = len(sorted_list)
+    if sorted_list[n//2][position] > item[position]:
+        print(sorted_list[:n//2])
+        return bisect_for_lol(sorted_list[:n//2], item, position)
+    elif sorted_list[n//2][position] < item[position]:
+        print(sorted_list[n // 2:])
+        return bisect_for_lol(sorted_list[n//2:], item, position) + n//2
+    else:
+        print(sorted_list[n//2])
+        return n//2
 
 class State(Enum):
     """
     Describes the possible states for tasks, from their creation (out of simulation range) to their terminaison.
     """
 
-    NOT_SUBMITTED = auto()  # The task has just been defined : the simulated system haven't heard of it yet.
+    NOT_SUBMITTED = auto()  # The task has just been defined: the simulated system hasn't heard of it yet.
     QUEUED = auto()  # The task has been submitted to the scheduler, but no resource is allocated for it.
     EXECUTING = auto()  # The task has been allocated computation resources, but isn't in a calculation or I/O phase
     EXECUTING_CALCULATION = auto()  # The task is performing some calculations.
     EXECUTING_IO = auto()  # The task is performing some I/O.
-    FINISHED = auto()  # The task is completed : terminated.
+    FINISHED = auto()  # The task is completed: terminated.
 
 
 class TaskStepType(Enum):
@@ -142,10 +152,8 @@ class Event(Enum):
     IO_STEP_END = auto()    # A Task is to end an IOTaskStep
     TASK_TERMINAISON = auto()   # A Task is about to end (i.e. its last TaskStep is to end).
     SIMULATION_TERMINAISON = auto()     # The Simulation is over, because of no remaining Task to execute.
-# FIN DEUXIÈME SECTION
 
 
-# TROISIÈME SECTION
 class TaskStep(ABC):
     """
     Mother class of ComputeTaskStep and IOTaskStep.
@@ -154,7 +162,7 @@ class TaskStep(ABC):
     def __init__(self, task: "Task"):
         """
         Constructor of TaskStep class.
-        :param task: The task to which belongs the step.
+        :param task: The task to which the step belongs.
         """
         self.task: Task = task
         self.progress: int = 0  # The progression of the task's execution.
@@ -183,7 +191,7 @@ class TaskStep(ABC):
     def finish_time(self):
         """
         Computes an estimation of the remaining time to complete the step,
-            considering resources allocated and assuming there is no perturbations incoming in the system.
+        considering resources allocated and assuming there are no perturbations incoming in the system.
         :return: The estimated remaining time in seconds (float)
         """
         raise NotImplementedError("The abstract method from the abstract class was called.")
@@ -206,7 +214,7 @@ class ComputeTaskStep(TaskStep):
     def __init__(self, task: "Task", flop: int):
         """
         Constructor of ComputeTaskStep class.
-        :param task: The task to which belongs the compute step.
+        :param task: The task that has the ComputeStep.
         :param flop: The number of floating point operations that requires the step to complete (int).
         """
         TaskStep.__init__(self, task)
@@ -243,7 +251,7 @@ class ComputeTaskStep(TaskStep):
     def finish_time(self):
         """
         Computes an estimation of the remaining time to complete the ComputeTaskStep,
-            considering resources allocated and assuming there is no perturbations incoming in the system.
+            considering resources allocated and assuming there are no perturbations incoming in the system.
         :return: The estimated remaining time in seconds (float)
         """
         flops = 0
@@ -268,22 +276,20 @@ class ComputeTaskStep(TaskStep):
 
 class IOTaskStep(TaskStep):
     """
-    Describes a step of a task that is dedicated to I/O.
+    Describes a step of a task that is dedicated to IO.
     """
 
     def __init__(self, task: "Task", list_storage: List[Tuple["Storage", float]], total_io_volume: int):
         """
         Constructor of IOTaskStep class.
-        :param task: The task to which belongs the IO step.
+        :param task: The task that has the IOTaskStep.
         :param list_storage: The list of storage instances that are concerned with IO of this step,
             and the bandwidth (B/s) the task requires on each one.
-            The occupation is considered as constant for the whole execution.
-        :param total_io_volume: The total amount of IO required to complete the step (B)
+            The I/O flow is considered as constant for the whole execution.
+        :param total_io_volume: The total amount of IO required completing the step (B)
         """
         TaskStep.__init__(self, task)
         self.list_storage: List[Tuple["Storage", float]] = list_storage
-        # TODO : Qui choisit la position des données au sein des différentes ressources de stockage ?
-        #   (la simu, le scheduler, la mémoire elle-même, la tâche, l'étape de tâche ?)
         self.total_io_volume: int = total_io_volume
         self.step_type: TaskStepType = TaskStepType.IO
         self.available_bandwidth: float = 0.
@@ -299,7 +305,7 @@ class IOTaskStep(TaskStep):
         assert self.task.state is State.EXECUTING   # A Task can only execute one TaskStep at a time,
         # so it must execute nothing when launching an IOTaskStep.
         self.task.state = State.EXECUTING_IO
-        self.list_storage[0][0].register(self.task, self.list_storage[0][1])
+        self.list_storage[0][0].register(self.task, self.list_storage[0][1])    ### REMOVE
 
     def on_finish(self):
         """
@@ -307,13 +313,13 @@ class IOTaskStep(TaskStep):
         :return: None
         """
         assert self.task.state is State.EXECUTING_IO
-        self.list_storage[0][0].unregister(self.task, self.list_storage[0][1])
+        self.list_storage[0][0].unregister(self.task, self.list_storage[0][1])  ### REMOVE
         self.task.state = State.EXECUTING
 
     def finish_time(self):
         """
         Computes an estimation of the remaining time to complete the IOTaskStep,
-            considering resources allocated and assuming there is no perturbations incoming in the system.
+            considering resources allocated and assuming there are no perturbations incoming in the system.
         :return: The estimated remaining time in seconds (float)
         """
         bp = 0.
@@ -370,7 +376,7 @@ class Task:
         return f'Task "{self.name}"'
 
     def __repr__(self):
-        # Debug version of previous __str__ : more detailed, but more verbose.
+        # Debug version of previous __str__: more detailed, but more verbose.
         human_readable_csi = self.current_step_index + 1
         if not self.dependencies:
             return f'Task "{self.name}", {self.state}, requires {self.min_thread_count} threads, ' \
@@ -396,9 +402,9 @@ class Task:
     def on_start(self, list_nodes: List[Tuple["Node", int]], current_time: float):
         """
         Reserves computation resources and initiates the TaskStep sequence.
-        All the parameters when calling this method must have been decided by the Scheduler.
+        The Scheduler must have decided all the parameters when calling this method.
         :param list_nodes: A list of tuples, each containing one node on which task shall execute,
-        and the amount of cores to reserve on this node.
+        and the number of cores to reserve on this node.
         :param current_time: The current time at which the task effectively starts.
         :return: None
         """
@@ -437,7 +443,8 @@ class Node:
     """
 
     def __init__(self, name: str, max_frequency: float, min_frequency: float, core_count: int,
-                 static_power: float = 100., sleep_power: float = 0., coefficient_for_dynamic_power: float = 1e-28):
+                 static_power: float = 100., sleep_power: float = 0., coefficient_dynamic_power: float = 1e-28,
+                 coefficient_leakage_power: float = 1e-9):
         """
         Constructor of Node class.
         :param name: The name of the Node (str).
@@ -447,6 +454,8 @@ class Node:
         :param static_power: Basis power consumption (W) of the node, it's the minimal power consumption of the Node
         when it's not sleeping.
         :param sleep_power: Power consumption (W) of the node when it's switched off.
+        :param coefficient_dynamic_power: A coefficient, inserted in the equation of power consumption before f**3.
+        :param coefficient_leakage_power: A coefficient, inserted in the equation of power consumption before f**1.
         """
         self.name: str = name
         self.max_frequency: float = max_frequency
@@ -455,9 +464,8 @@ class Node:
         self.core_count: int = core_count
         self.static_power: float = static_power
         self.sleep_power: float = sleep_power
-        self.k = coefficient_for_dynamic_power  # A multiplicative coefficient that is inserted in the equation of
-        # power consumption. In the original study describing the model, it varies from 0.4 to 17.50, depending on the
-        # device. The study : https://www.sciencedirect.com/science/article/abs/pii/S2210537916301755
+        self.cdp = coefficient_dynamic_power
+        self.clp = coefficient_leakage_power
         # TODO : GROSSE INCOHERENCE : avec k = 1 et frequency = 5e9, on dépasse TRES vite les QJ de puissance consommée
         self.busy_cores: int = 0  # Number of cores running a Task on the node.
         self.idle_busy_cores: int = 0  # Number of cores reserved by some Task, but not performing calculations now.
@@ -472,17 +480,30 @@ class Node:
     def __str__(self):
         return f'Node "{self.name}" running {self.busy_cores}({self.idle_busy_cores})/{self.core_count} ' \
                f'cores for Tasks: {print_names_from_list(self.running_tasks)} ' \
-               f'with current frequency = {pp_unit(self.frequency, "Hz")}' \
-            # f"taking powers: [max = {pp_unit(self.busy_core_power, 'W')}, " \
-        # f"min = {pp_unit(self.idle_core_power, 'W')}, idle = {pp_unit(self.sleep_power, 'W')}] "
+               f'with current frequency = {pp_value(self.frequency, "Hz")}' \
+            # f "taking powers: [max = {pp_value(self.busy_core_power, 'W')}, " \
+        # f"min = {pp_value(self.idle_core_power, 'W')}, idle = {pp_value(self.sleep_power, 'W')}] "
 
     def power_consumption(self):
         """
         Computes the current power consumption (W) of this Node.
         :return: The power consumption (W) as a float.
-        This formula comes from this study : https://www.sciencedirect.com/science/article/abs/pii/S2210537916301755
         """
-        return self.static_power + (self.k * (self.busy_cores-self.idle_busy_cores) * self.frequency**3)
+        # Plus de formules, plus complexes/complètes ont été vues dans :
+        # https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=7279063
+        # Notamment: Power_CPU = a*f**3 + b*f + c,
+        # Telle que bf correspond à la puissance consommée par les caches, et celle résiduelle perdue par les cœurs ;
+        # af**3 et c sont resp La puissance dynamique du CPU et la puissance de base, qu'on utilise toutes deux déjà.
+        # NB : a et b sont dépendants des applications exécutées, car le cache et la mémoire peuvent avoir des
+        # comportements différents suivant les tâches effectuées.
+        #
+        # Il sera compliqué de trouver plus précis que ce modèle de polynôme de degré 3 sans considérer
+        # une hiérarchie dans les cœurs, et/ou la modélisation des caches dans le processeur,
+        # et/ou l'inégalité 1 thread != 1 cœur.
+        # Il n'est pas prévu d'implémenter des formules à destination des GPUs.
+        dynamic_power = self.cdp * (self.busy_cores-self.idle_busy_cores) * self.frequency**3
+        leakage_power = self.clp * self.core_count * self.frequency
+        return dynamic_power + leakage_power + self.static_power
 
     def register(self, task: Task, cores: int):
         """
@@ -510,17 +531,9 @@ class Node:
         assert 0 <= self.idle_busy_cores <= self.busy_cores <= self.core_count
 
 
-class File:
-    """
-    Class describing a file on the system. These files can be red or written by IOTaskSteps, allowing to model I/Os.
-    """
-    def __init__(self):
-        raise NotImplementedError
-
-
 class Storage:
     """
-    Class describing a storage device (HDD, SSD, RAM, ...).
+    Mother class of all storage devices implemented (HDD, SSD, RAM, ...).
     """
     # TODO Nouvelle modélisation:
     # On a 2 niveaux de mémoire : HDD et SSD.
@@ -536,44 +549,48 @@ class Storage:
     # C'est le scheduler qui décide de quoi est ou.
     # La latence est une ordonnée à l'origine : un temps à attendre sans qu'une progression ne se fasse sur les I/O
     #   demandées.
-    # On introduit un débit max en sortie de chaque noeud.
-    def __init__(self, name: str, capacity: int, throughput: float, latency: float,
-                 files: List[File], power: float = 0.):
+    # On introduit un débit max en sortie de chaque nœud.
+    def __init__(self, name: str, capacity: int, throughput: float, latency: float):
         """
         Constructor of the Storage class.
         :param name: The name of the storage instance (str)
         :param capacity: Number of bytes available on the device.
         :param throughput: I/O-bandwidth (B/s) to communicate with the outside.
-        :param latency: Time (s) required to communicate any piece of data with any other device of the simulation.
-        :param power: Power (W) required to run
-                        0 by default, because storage consumption never appears in papers about I/O.
+        :param latency: Time (s) required communicating any piece of data with any other device of the simulation.
         """
         self.name: str = name
         self.capacity: int = capacity
         self.throughput: float = throughput
         self.latency: float = latency
-        self.files: List[File] = files
-        self.power: float = power
-        self.occupation: float = 0.  # Raw amount of I/O-bandwidth (B/s) used at this time.
+        self.files: Set[File] = set()  # All the files on the Storage will be loaded later on.
+        self.occupation: int = 0    # Number of bytes occupied on the Storage.
+        self.flow: float = 0.  # Raw amount of I/O-bandwidth (B/s) used at this time.
         self.running_tasks: List[Task] = []
+        self.occupied_space: List[List[int, int, "File"]] = []  # A list saying which bytes are taken by which File.
+        # It is of the form : [..., [begin_byte_i, space_taken_i, file_i], ...]
+        self.empty_space: List[List[int]] = [[0, capacity]]    # A list saying which bytes are freed.
+        # It is of the form : [..., [begin_byte_i, space_freed_i], ...]
         self.contention: float = 1.  # A number useful to compute delays linked with I/O-contention
-        #   si occupation <= throughput : 1 (aucun problème)
-        #   si occupation > throughput : occupation / throughput
+        #   si flow <= throughput : 1 (aucun problème)
+        #   si flow > throughput : flow / throughput
         #       (le temps mis pour compléter une quantité d'I/O devient temps_initial * contention,
         #       et la BP réelle disponible pour une tâche devient contention / bp_initiale).
 
     def __str__(self):
-        if self.power:
-            return f'Storage "{self.name}" with capacity = {pp_unit(self.capacity, "B")} ' \
-                   f'throughput = {pp_unit(self.occupation, "B/s")} in {pp_unit(self.throughput, "B/s")} ' \
-                   f'for Tasks: {print_names_from_list(self.running_tasks)} ' \
-                   f'contention = {self.contention} ' \
-                   f'taking {pp_unit(self.power, "W")}'
-        # f"latency = {pp_unit(self.latency, 's')} " \
-        return f'Storage "{self.name}" with capacity = {pp_unit(self.capacity, "B")} ' \
-               f'throughput = {pp_unit(self.occupation, "B/s")} in {pp_unit(self.throughput, "B/s")} ' \
-               f'contention = {self.contention}'
-        # f"latency = {pp_unit(self.latency, 's')} " \
+        return f"Storage '{self.name}' " \
+               f"with {pp_value(self.occupation, 'B')} out of {pp_value(self.capacity, 'B')} occupied " \
+               f"throughput = {pp_value(self.flow, 'B/s')} in {pp_value(self.throughput, 'B/s')} " \
+               f"for Tasks: {print_names_from_list(self.running_tasks)} " \
+               f"contention = {self.contention} " \
+               f"latency = {pp_value(self.latency, 's')} "
+
+    def power_consumption(self):
+        """
+        Computes the current power consumption (W) of this Storage.
+        This is only the skeleton of the methodNeeds to be implemented in each subclass.
+        :return: A NotImplementedError
+        """
+        raise NotImplementedError("This is the method from class Storage, Call a method from a subclass.")
 
     def update_contention(self):
         """
@@ -581,22 +598,22 @@ class Storage:
             and modifies the contention instance variable consequently.
         :return: None
         """
-        if self.occupation <= self.throughput:
+        if self.flow <= self.throughput:
             self.contention = 1.
         else:
-            self.contention = self.occupation / self.throughput
+            self.contention = self.flow / self.throughput
 
     def register(self, task: Task, bandwidth: float):
         """
-        Give a Task part of the available  I/O bandwidth.
+        Give a Task part of the available I/O bandwidth.
         :param task: Newly elected Task for an I/O booking.
         :param bandwidth: The amount of bandwidth to allocate to the Task.
         :return: None
         """
         assert task.steps[task.current_step_index].step_type == TaskStepType.IO
-        assert self.occupation >= 0
+        assert self.flow >= 0
         assert bandwidth >= 0
-        self.occupation += bandwidth    # Currently, the task_step decide which amount of bp to be taken on each Storage
+        self.flow += bandwidth    # Currently, the task_step decide which amount of bp to be taken on each Storage
         self.running_tasks.append(task)
         self.update_contention()
 
@@ -608,18 +625,195 @@ class Storage:
         :return: None
         """
         assert task.steps[task.current_step_index].step_type == TaskStepType.IO
-        delta = self.occupation - bandwidth
+        delta = self.flow - bandwidth
         if delta < 0:
             if abs(delta) > 1e-6:   # If the delta is below 0, and lower than 1 µs, the error is probably due to
                 # floating point imprecision.
-                raise ValueError(f"The occupation {self.occupation} of Storage {self.name} is about to be lowered of "
+                raise ValueError(f"The I/O flow {self.flow} of Storage {self.name} is about to be lowered of "
                                  f"{bandwidth}")
             else:
-                self.occupation = 0.
+                self.flow = 0.
         else:
-            self.occupation -= bandwidth
+            self.flow -= bandwidth
         self.running_tasks.remove(task)
         self.update_contention()
+
+
+class HDDState(Enum):
+    """
+    Class describing all the states an HDD can take.
+    """
+
+    NOMINAL = auto()
+    SLOW = auto()
+    SLEEP = auto()
+
+
+class HDD(Storage):
+    """
+    Class describing a storage device of type Hard Disk Drive: a hard disk always spinning and an arm moving on top of
+    the disk to perform reads and writes (as well as the embedded electronics).
+    """
+
+    def __init__(self, name: str, capacity: int, throughput: float, latency: float,
+                 disk_max_spin: float, disk_min_spin: float,
+                 arm_mass: float, arm_radius: float, arm_max_spin: float,
+                 electronic_power: float, sleep_power: float = 0.):
+        """
+        Constructor of the HDD class.
+        :param name: The name of the storage instance (str)
+        :param capacity: Number of bytes available on the device.
+        :param throughput: I/O-bandwidth (B/s) to communicate with the outside.
+        :param latency: Time (s) required communicating any piece of data with any other device of the simulation.
+        :param disk_max_spin: Maximum angular speed (rad/s) allowed for the disk ().
+        :param disk_min_spin: Minimum angular speed (rad/s) allowed for the disk (taken in idle mode).
+        :param arm_mass: Mass (kg) of the I/O arm
+        :param arm_radius: Radius (m) of the I/O arm
+        :param electronic_power: Power consumed by all electronic components of the HDD
+        :param sleep_power: power consumed by the HDD when sleeping (default 0)
+        """
+        super().__init__(name, capacity, throughput, latency)
+        self.disk_max_spin: float = disk_max_spin
+        self.disk_min_spin: float = disk_min_spin
+        self.arm_momentum: float = arm_mass * (2*arm_radius)**2 / 12
+        self.arm_radius: float = arm_radius
+        self.arm_max_spin: float = arm_max_spin
+        self.electronic_power: float = electronic_power
+        self.sleep_power = sleep_power
+        self.disk_current_spin: float = disk_max_spin  # Let suppose that the HDD begins in nominal mode.
+        self.arm_current_spin: float = arm_max_spin    # Let suppose that the HDD begins in nominal mode.
+        self.state = HDDState.NOMINAL
+
+    def __str__(self):
+        return f"HDD '{self.name}' " \
+               f"with {pp_value(self.occupation, 'B')} out of {pp_value(self.capacity, 'B')} occupied " \
+               f"throughput = {pp_value(self.flow, 'B/s')} in {pp_value(self.throughput, 'B/s')} " \
+               f"for Tasks: {print_names_from_list(self.running_tasks)} contention = {self.contention} " \
+               f"currently {self.state} with disk_spin = {pp_value(self.disk_current_spin, 'rad/s')} " \
+               f"and arm_speed = {pp_value(self.arm_current_spin, 'rad/s')} currently {self.state} "
+
+    def power_consumption(self):
+        """
+        Computes the current power consumption (W) of this HDD.
+        :return: The power consumption (W) as a float.
+        This formula comes from this study :
+        """
+        # Proposition pour HDD :
+        #   Réutiliser la formule de l'étude de 1990 : P_SPM = w_SPM**2.8 * (2r)**4.6 (on prend 1 unique disque par HDD)
+        #   TODO analyse dimensionnelle.
+        #   Pour le VCM : ajouter une formule inspirée d'une autre étude : E_VCM = w_VCM**2 * J_VCM / 2
+        #   (cf. cours pour calculer le moment d'inertie)
+        #   Pour l'électronique, ajouter un petit offset au total.
+        #   Introduire la notion de "repos" : le bras ne tourne plus,
+        #   et la "veille" : le disque tourne au ralenti et le bras est immobile.
+        if self.state == HDDState.SLEEP:
+            return self.sleep_power
+        elif self.state == HDDState.SLOW:
+            return self.disk_current_spin**2.8 * (2 * self.arm_radius)**4.6 + self.electronic_power
+        elif self.state == HDDState.NOMINAL:
+            p_spm = self.disk_current_spin**2.8 * (2 * self.arm_radius)**4.6
+            p_vcm = self.arm_current_spin ** 2 * self.arm_momentum / 2
+            return p_spm + p_vcm + self.electronic_power
+        else:
+            raise ValueError(f"SSD {self} has state {self.state}.")
+
+
+class SSDState(Enum):
+    """
+    Describes the possible states for SSDs.
+    """
+
+    ACTIVE = auto()
+    SLEEP = auto()
+
+
+class SSD(Storage):
+    """
+    Class describing a storage device of type Solid-State Drive: a set of flash memory units that can keep data.
+    """
+
+    def __init__(self, name: str, capacity: int, throughput: float, latency: float, max_read_power: float,
+                 max_write_power: float, leakage_power: float, sleep_power: float = 0.):
+        """
+        Constructor of the SSD class.
+        :param name: The name of the storage instance (str)
+        :param capacity: Number of bytes available on the device.
+        :param throughput: I/O-bandwidth (B/s) to communicate with the outside.
+        :param latency: Time (s) required communicating any piece of data with any other device of the simulation.
+        :param max_read_power: Power consumed if all the bandwidth is used to read.
+        :param max_write_power: Power consumed if all the bandwidth is used to write.
+        :param leakage_power: Power consumed by the disk for its own needs.
+        :param sleep_power: Power consumed by the SSD when sleeping (default 0)
+        """
+        super().__init__(name, capacity, throughput, latency)
+        self.max_read_power: float = max_read_power
+        self.max_write_power: float = max_write_power
+        self.leakage_power: float = leakage_power
+        self.sleep_power: float = sleep_power
+        self.flow_read: float = 0.    # Amount of bandwidth (B/s) taken to read data.
+        self.flow_write: float = 0.   # Amount of bandwidth (B/s) taken to write data.
+        self.state = SSDState.ACTIVE
+
+    def __str__(self):
+        return f"SSD '{self.name}' " \
+               f"with {pp_value(self.occupation, 'B')} out of {pp_value(self.capacity, 'B')} occupied " \
+               f"global throughput = {pp_value(self.flow, 'B/s')} in {pp_value(self.throughput, 'B/s')} " \
+               f"of which read = {pp_value(self.flow_read, 'B/s')} " \
+               f"and write = {pp_value(self.flow_write, 'B/s')} " \
+               f"for Tasks: {print_names_from_list(self.running_tasks)} contention = {self.contention} " \
+               f"currently {self.state} "
+
+    def power_consumption(self):
+        """
+        Computes the current power consumption (W) of this SSD.
+        :return: The power consumption (W) as a float.
+        This formula comes from this study :
+        """
+        # Proposition pour SSD :
+        # Params : les données constructeurs self.max_write_power, self.max_read_power, self.idle_power
+        #   Distinguer 2 modes :
+        #       Actif : Le disque normal, P = (flow_w/BP)*mwp + (flow_r/BP)*mrp + idle_power
+        #       Veille : Le disque ne peut pas lire/écrire, sa consommation vaut self.idle_power
+        if self.state == SSDState.ACTIVE:
+            return (self.flow_read*self.max_read_power + self.flow_write*self.max_write_power)\
+                / self.throughput + self.leakage_power
+        elif self.state == SSDState.SLEEP:
+            return self.sleep_power
+        else:
+            raise ValueError(f"SSD {self} has state {self.state}.")
+
+
+class File:
+    """
+    Class describing a file on the system. These files can be red or written by IOTaskSteps, allowing to model I/Os.
+    """
+
+    def __init__(self, name: str, space: int, preferred_storage: Storage):
+        """
+        Constructor of the File class.
+        :param name: The name of the File instance.
+        :param space: The number of bytes the File occupies (this number is mutable).
+        :param preferred_storage: The preferred kind of Storage device to put the File on.
+        """
+        self.name: str = name
+        self.space: int = space
+        self.preferred_storage = preferred_storage
+        self.locations: List[Union[Storage, int, int]] = []  # List used to describe the position of the file.
+        self.split_in_disk: bool = False            # Boolean saying iff the file is split between several locations on
+        # the same disk. Then self.locations is like : List[..., (disk, first_byte_i, subspace_i), ...]
+        # We do not consider the possibility for a File to be split between disks.
+        #   self.split_between_disks: bool = False      # Boolean saying iff the file is split between several disks of
+        #   the same level. Then self.locations is like : List[..., (disk_i, first_byte_i, subspace_i), ...]
+        #   self.split_between_levels: bool = False     # Boolean saying iff the file is split between several disks of
+        #   different levels. Then self.locations is like : List[..., (HDD_i, fB_i, sbs_i), (SSD_j, fB_j, sbs_j), ...]
+        self.read: bool = False     # Boolean saying iff the file is being red by at least one Task.
+        self.written: bool = False  # Boolean saying iff the file is being written by a Task. Only one Task can write a
+        # File at a time.
+
+    def __str__(self):
+        return f"File '{self.name}', taking {pp_value(self.space, 'B', 3)} " \
+               f"on {self.locations} " \
+               f"read?-=>{self.read}, written?-=>{self.written} "
 
 
 class AbstractScheduler(ABC):
@@ -634,7 +828,7 @@ class AbstractScheduler(ABC):
     def on_new_task(self, task: Task):
         """
         Deals with the arrival of a new task in the queue of candidates.
-        :param task: the oncoming task
+        :param task: The oncoming task
         :return: A list of schedule orders
         """
         raise NotImplementedError("The abstract method from the abstract class was called.")
@@ -652,27 +846,27 @@ class AbstractScheduler(ABC):
 class TaskSchedulingTrace:
     """
     Class that allows to pair a list of tasks with a list of timestamps,
-    such as each task is associated with a time of submission (i.e. it becomes candidate to be executed).
+    such as each task is associated with a time of submission (i.e. it becomes a candidate to execution).
 
-    ATTENTION : this class is just a way to store data.
+    ATTENTION: this class is just a way to store data.
     """
 
     def __init__(self, tasks: List[Task], task_submission_timestamps: List[float]):
         """
         Constructor of TaskSchedulingTrace class.
         :param tasks: The list of tasks that simulation shall execute.
-        :param task_submission_timestamps: The list of moments at which each task becomes candidate for execution.
+        :param task_submission_timestamps: The list of moments at which each task becomes a candidate for execution.
         """
         self.tasks_ts: List[Tuple[Task, float]] = sorted([(task, timestamp) for task, timestamp
                                                           in zip(tasks, task_submission_timestamps)],
                                                          key=lambda t_ple: t_ple[1])
-        self.lsft: int = -1    # The index of the "Last Surely Finished Task" of the simulation
+        self.lsft: int = -1    # The index of the "Last Surely Finished Task" in the simulation
         # Be careful, it is not the index of the lastly finished Task,
         # it is such as all tasks before it, in the order of their submission timestamps, are already finished.
         self.lst: int = -1    # The index of the "Last Submitted Task" to simulator's scope.
         # Note that between the indexes of lft and lst, there can be no Task already submitted,
         # because the Tasks are ordered according to their submission timestamps.
-        # But there can be some already finished Tasks, because their purpose is only to focus the simulation on
+        # But there can be some already finished Tasks because their purpose is only to focus the simulation on
         # the most interesting part of the Tasks list, to shorten calculations.
 
     def update_lsft(self):
@@ -703,21 +897,26 @@ class TaskSchedulingTrace:
 
 class Simulation:
     """
-    Class describing the simulation instances : each instance of this class is
-        a simulation of the execution of a workflow on a hardware (both given as arguments).
+    Class describing the simulation instances: each instance of this class is
+        a simulation of the execution of a workflow on hardware (both given as arguments).
     """
 
-    def __init__(self, list_nodes: List[Node], list_storage: List[Storage],
+    def __init__(self, list_nodes: List[Node], list_storage: [List[HDD], List[SSD]], list_files: List[File],
                  task_list: TaskSchedulingTrace, algo_scheduler):
         """
         Constructor of the Simulation class
-        :param list_nodes: The list of all available computation nodes in the simulated system.
-        :param list_storage: The list of all storage devices in the simulated system.
+        :param list_nodes: The list of all Nodes in the simulated system.
+        :param list_storage: The list of all Storage devices in the simulated system.
+        :param list_files: The list of all Files initially written on the memory devices.
         :param task_list: The list of all tasks that simulation will have to execute.
         :param algo_scheduler: The scheduling algorithm that will be used in the simulation.
         """
         self.nodes: List[Node] = list_nodes
-        self.storage: List[Storage] = list_storage
+        self.list_hdds: List[HDD] = list_storage[0]
+        self.list_ssds: List[SSD] = list_storage[1]
+        self.storage: List[Storage] = list_storage[0] + list_storage[1]
+        self.list_files: List[File] = list_files
+        self.allocate_files()
         self.task_list: TaskSchedulingTrace = task_list
         self.scheduler = algo_scheduler
         self.next_event: List[Union[List[Event], Task, float]] =\
@@ -725,15 +924,76 @@ class Simulation:
         self.time: List[float] = [0.]  # The different times of interest raised in the simulation
         self.energy: List[float] = [0.]  # Total energy consumption from the beginning of the simulation
         self.event: int = -1
+        # Creation of the folders that will contain the results of the Simulation
+        k: int = 1
+        while isdir(f"enregistrements_automatiques/{self.scheduler.name}/résultats_{k}"):
+            k += 1
+        makedirs(f"enregistrements_automatiques/{self.scheduler.name}/résultats_{k}")
+        self.record_folder = f"enregistrements_automatiques/{self.scheduler.name}/résultats_{k}"
+        makedirs(f"{self.record_folder}/nœuds")
+        makedirs(f"{self.record_folder}/mémoire")
+        makedirs(f"{self.record_folder}/tâches")
+        makedirs(f"{self.record_folder}/global")
+        # Creation of the recording files (one per item of interest).
+        for node in self.nodes:
+            file = open(f"{self.record_folder}/nœuds/{node.name}.csv", "x", newline='')
+            writer(file).writerow(["Temps (s)", "Énergie (J)"])
+        for storage_unit in self.storage:
+            file = open(f"{self.record_folder}/mémoire/{storage_unit.name}.csv", "x", newline='')
+            writer(file).writerow(["Temps (s)", "Énergie (J)", "Débit d'E/S (O/s)", "Contention (sans unité)"])
+        for task_t in self.task_list.tasks_ts:
+            file = open(f"{self.record_folder}/tâches/{task_t[0].name}.csv", "x", newline='')
+            writer(file).writerow(["Temps (s)", "Énergie (J)", "Débit d'E/S (O/s)"])
+        file = open(f"{self.record_folder}/global/simulation.csv", "x", newline='')
+        writer(file).writerow(["Temps (s)", "Énergie (J)"])
 
     def __str__(self):
         r = f'State of the {self.scheduler} at {self.time[-1]}s, event {self.event} :\nEnergy consumed : ' \
-            f'{pp_unit(self.energy[-1], "J")}\nNodes available: '
-        r += print_hardware_list(self.nodes)
+            f'{pp_value(self.energy[-1], "J")}\nNodes available: '
+        r += print_list(self.nodes)
         r += '; Storage available : '
-        r += print_hardware_list(self.storage)
+        r += print_list(self.storage)
         r += '\n'
         return r
+
+    # noinspection PyMethodMayBeStatic
+    def select_attribute_disk(self, file: File, list1: List[Storage], list2: List[Storage]):
+        """
+        Select a random Storage from the lists given that can welcome the given file.
+        :param file: The File to write on a disk.
+        :param list1: First set of Storages. First, tries to write the File on one random disk from that list.
+        :param list2: Second set of Storages. If the File couldn't be written on one Storage from the 1st list,
+        the function tries on disks from that list.
+        :return: None
+        """
+        k: int = 0
+        # Rearrange Storage items to ensure that all disks can be used randomly.
+        reordered_list_storage: List[Storage] = sample(list1, k=len(list1)) + sample(list2, k=len(list2))
+        while k < len(reordered_list_storage):
+            if reordered_list_storage[k].throughput - reordered_list_storage[k].occupation >= file.space:
+                # The decision on where to write the File on the disk is given to the controller.
+                self.scheduler.allocate_space(file, reordered_list_storage[k])
+                break
+            k += 1
+        if k == len(reordered_list_storage):
+            raise OverflowError(f"File {file} is too big, and cannot be stored into one disk.")
+
+    def allocate_files(self):
+        """
+        Performs the computation required to write orphan Files onto some storage (HDD or SSD).
+        :return: None
+        """
+        for file in self.list_files:
+            if file.preferred_storage.throughput - file.preferred_storage.occupation >= file.space:
+                self.scheduler.allocate_space(file, file.preferred_storage)
+            else:
+                if file.preferred_storage.name[0:3] == "HDD":
+                    self.select_attribute_disk(file, self.list_hdds, self.list_ssds)
+                elif file.preferred_storage.name[0:3] == "SSD":
+                    self.select_attribute_disk(file, self.list_ssds, self.list_hdds)
+                else:
+                    self.select_attribute_disk(file, self.list_hdds, self.list_ssds)    # If the name of preferred disk
+                    # doesn't follow the pattern and cannot welcome the File, we preferably place the File on an HDD.
 
     # noinspection PyMethodMayBeStatic
     def nature_of_step_end(self, step_type: State, task: Task, fin_step: float) -> list[list[Event], Task, float]:
@@ -753,7 +1013,7 @@ class Simulation:
         else:
             raise ValueError(f"Simulation.step_type has the value '{step_type}', unappropriated for a step_end.")
         if task.current_step_index == len(task.steps) - 1:
-            # Here, this is the end of the last step of the task, i.e. the end of the task.
+            # Here, this is the end of the last step in the task, i.e. the end of the task.
             next_event = [[next_event[0][0], Event.TASK_TERMINAISON], task, fin_step]
         return next_event
 
@@ -765,7 +1025,7 @@ class Simulation:
         """
         print(Fore.BLUE + f"lst : {self.task_list.lst}, lsft : {self.task_list.lsft}" + Style.RESET_ALL)
         lst = self.task_list.lst
-        # Initialisation of variable next_event.
+        # Initialization of variable next_event.
         if lst < len(self.task_list.tasks_ts)-1:
             next_event = [[Event.TASK_SUBMIT], self.task_list.tasks_ts[lst+1][0], self.task_list.tasks_ts[lst+1][1]]
         else:
@@ -776,7 +1036,7 @@ class Simulation:
                 fin_step = task_t[0].steps[task_t[0].current_step_index].finish_time() + self.time[-1]
                 if fin_step <= next_event[2]:
                     next_event = self.nature_of_step_end(task_t[0].state, task_t[0], fin_step)
-        # If no task perform any action, it means all tasks have been executed : this is the end of the simulation.
+        # If no task performs any action, it means all tasks have been executed: this is the end of the simulation.
         if next_event[2] == inf:
             next_event = [[Event.SIMULATION_TERMINAISON], None, self.time[-1]]
         self.next_event = next_event
@@ -811,20 +1071,26 @@ class Simulation:
         :return: None
         """
         interval = self.time[-1] - self.time[-2]
-        new_energy = 0
+        new_total_energy = 0
         for node in self.nodes:
-            if node.sleeping:
-                new_energy += interval * node.sleep_power
-            else:
-                new_energy += interval * node.power_consumption()
+            en = node.power_consumption() * interval
+            with open(f"{self.record_folder}/nœuds/{node.name}.csv", "w") as file:
+                writer(file).writerow([self.time[-1], en])
+            new_total_energy += energy
         for storage_unit in self.storage:
-            new_energy += interval * storage_unit.power
-        self.energy.append(self.energy[-1] + new_energy)
+            en = storage_unit.power_consumption() * interval
+            with open(f"{self.record_folder}/nœuds/{storage_unit.name}.csv", "w") as file:
+                writer(file).writerow([self.time[-1], en, storage_unit.flow, storage_unit.contention])
+            new_total_energy += energy
+        print("Task statistics to be implemented when File systems are complete")
+        for task_t in self.task_list.tasks_ts:
+            pass
+        self.energy.append(self.energy[-1] + new_total_energy)
 
     def update_physics(self, time: float):
         """
         Update the fields of time and energy.
-        :param time: the new time to introduce.
+        :param time: The new time to introduce.
         :return: None
         """
         assert time >= self.time[-1]
@@ -839,7 +1105,7 @@ class Simulation:
     def run(self):
         """
         Run the simulation until all tasks are completed.
-        :return: time, energy: the lists of times isolated for the simulation and the energy consumed at these moments.
+        :return: Time, energy: the lists of times isolated for the simulation and the energy consumed at these moments.
         """
         if not self.task_list.tasks_ts:
             print(Fore.WHITE + "No task to execute." + Style.RESET_ALL)
@@ -876,26 +1142,29 @@ class NaiveScheduler(AbstractScheduler):
     It simply applies a "First Come, First Served" policy.
     """
 
-    def __init__(self, env_nodes: List[Node], env_storage: List[Storage]):
+    def __init__(self, name: str, env_nodes: List[Node], env_storage: List[Storage], rng: Random):
         """
         Constructor of the NaiveScheduler class.
+        :param name: String to name the Scheduler.
         :param env_nodes: List of nodes on the system.
         :param env_storage: List of storage devices on the system.
+        :param rng: An instance of a random number generator.
         """
         # List containing all the available resources :
+        self.name: str = name   # To create a folder with records.
         self.nodes: List[Node] = env_nodes
         self.storage: List[Storage] = env_storage
+        self.rng = rng
         # Queue of all candidate tasks that cannot be executed yet, because of a lack of available resources :
         self.queue: List[Task] = []
         self.current_time: float = 0.
-        # TODO On considère que c'est à l'ordonnanceur de gérer les dépendances. Est-ce bien ce qu'on veut ?
         self.finished_tasks: List[Task] = []    # The list of all tasks that are already finished.
 
     def queuing(self, task: Task, insertion=-1) -> None:
         """
         Performs the required operations to put an oncoming task at the end of the queue.
         :param task: The task to put in the queue.
-        :param insertion: an int saying, in case the execution of the Task fails, where to insert it in the queue.
+        :param insertion: An int saying, in case the execution of the Task fails, where to insert it in the queue.
         :return: None
         """
         if insertion < 0:
@@ -907,9 +1176,8 @@ class NaiveScheduler(AbstractScheduler):
         """
         Search for all nodes in the system that have, at least, one free core,
             and sorts them according to their number of free cores, in a decreasing order.
-        :return: A list containing:
-            a list of tuples in which the 1st element is a node and the 2nd is its number of available cores.
-            the total of available cores in the system.
+        :return: A list containing a list of tuples in which the 1st element is a node and the 2nd is its number of
+        available cores, and the total of available cores in the system.
         """
         av_nodes: List[Tuple[Node, int]] = []
         total_av_cores: int = 0
@@ -938,16 +1206,64 @@ class NaiveScheduler(AbstractScheduler):
         else:
             return required_cores - available_cores
 
+    def allocate_space(self, file: "File", disk: Storage):
+        # TODO Simplifier la fonction.
+        """
+        Allocates the required space on a Storage to store a File.
+        To succeed, the Storage must have enough free space to allocate the whole file, it can split it if required.
+        This implementation searches for the most suitable location for the File in priority: the subspace that is both
+        tiniest and of length higher than the File's one.
+        If the file is too big to be placed into one unique subspace, it gets split.
+        :param file: The incoming File
+        :param disk: The receiving Storage.
+        :return: None
+        """
+        # Sort the list of empty spaces with increasing length of the subspaces.
+        free_space = sorted(disk.empty_space, key=lambda subspace: subspace[1])
+        if free_space[-1][1] >= file.space:   # If there is one subspace large enough to host the whole File:
+            ideal_subspace_index = bisect_for_lol(free_space, [0, file.space], 1)
+            # To model randomness in space allocation, the beginning byte is 'somewhere' in the subspace.
+            interval = free_space[ideal_subspace_index][1] - file.space
+            beginning = self.rng.randint(0, interval)
+            taken_subspace = [free_space[ideal_subspace_index][0] + beginning, file.space, file]
+
+            # Updating disk's occupied_space.
+            noi = bisect_for_lol(disk.occupied_space, taken_subspace, 0)    # noi stands for newly_occupied_index.
+            disk.occupied_space.insert(noi, taken_subspace)
+            # Check if the modification is correct.
+            if disk.occupied_space[noi-1][0] + disk.occupied_space[noi-1][1] > disk.occupied_space[noi][0]:
+                print(disk.occupied_space)
+                raise ValueError(f"On disk {disk}, allocated subspace {disk.occupied_space[noi-1]} now covers "
+                                 f"{disk.occupied_space[noi]}")
+            if disk.occupied_space[noi][0] + disk.occupied_space[noi][1] > disk.occupied_space[noi+1][0]:
+                print(disk.occupied_space)
+                raise ValueError(f"On disk {disk}, allocated subspace {disk.occupied_space[noi - 1]} now covers "
+                                 f"{disk.occupied_space[noi]}")
+
+            # Updating disk's free_space. Get back to the location-base sorted list.
+            ideal_subspace_index = disk.empty_space.index(free_space[ideal_subspace_index])
+            previous_free_space = disk.empty_space[ideal_subspace_index]
+            next_occupied_byte = disk.occupied_space[bisect_for_lol(disk.occupied_space, previous_free_space, 0)[0]][0]
+            if beginning > 0:   # If the occupied space begins right after the previous one, it is useless to create an
+                # "empty" empty space.
+                disk.empty_space.insert(ideal_subspace_index, [previous_free_space[0], beginning])
+            first_byte_new_free_space = previous_free_space[0] + beginning + file.space  #
+            disk.empty_space.insert(ideal_subspace_index+1,
+                                    [first_byte_new_free_space,  next_occupied_byte-first_byte_new_free_space])
+        else:
+            file.split_in_disk = True
+            # TODO Coder partie plus dure : scinder le fichier.
+            #   On doit pouvoir réutiliser la partie du haut en tant que fonction pour allouer une partie d'un fichier.
+
     def all_dependencies_check(self, task: Task) -> bool:
         """
-        Check if all Tasks for which completion was required by another one, have eventually been satisfied or not.
+        Check if all Tasks for which completion was required by another one have eventually been satisfied or not.
         :param task: The Task that requires the completion of others.
         :return: True if all dependencies are done, False otherwise.
         """
         deps: List[Task] = task.dependencies
         k: int = 0
-        exe: bool = len(deps) <= len(self.finished_tasks)     # If the Task requires more Tasks to be finished than
-        # the ones that eventually are, the case is closed.
+        exe: bool = len(deps) <= len(self.finished_tasks)
         while exe and k < len(deps):
             if deps[k] not in self.finished_tasks:
                 exe = False
@@ -956,17 +1272,17 @@ class NaiveScheduler(AbstractScheduler):
 
     def executing_task(self, task: Task, insertion: int = 0) -> List[Tuple[Node, int]] or None:
         """
-        Check if there is enough resources to execute the task in argument.
-        - If yes, try to allocate all the resources needed for it and returns the list of nodes & cores to allocate.
+        Check if there are enough resources to execute the task in argument.
+        - If yes, try to allocate all the resources needed for it and return the list of nodes & cores to allocate.
         - If no, put the task at the end of the queue and return None.
         :param task: The task to execute
         :param insertion: an int saying, in case the execution of the Task fails, where to insert it in the queue.
-        :return: The list of couples (node, cores) to allocate to the task, or None if the task cannot be executed.
+        :return: The list of couples (node, cores) to be allocated to the task, or None if the task cannot be executed.
         """
         m_cores = task.min_thread_count  # We assume that one thread occupies exactly one core.
         [av_nodes, tot_av_cores] = self.sort_least_used_nodes()
         if tot_av_cores < m_cores:
-            # If there is not enough calcul capacities available, we don't try to execute the application.
+            # If there are not enough calcul capacities available, we don't try to execute the application.
             self.queuing(task, insertion=insertion)
             return None
         # We don't check if there is enough I/O bandwidth, because we want to be able to create I/O contention,
@@ -1042,12 +1358,12 @@ def original(rng: Random) -> int:
     """
     Returns a digit in base 10 according to a Benford distribution.
     :param rng: A Random instance.
-    :return: an int.
+    :return: An int.
     """
     prob = rng.random()  # Pick a position on the [0.0, 1.0) segment, following a uniform distribution.
     k = 1
     cursor = log10(1 + 1/k)  # Cursor that increases on the [0.0, 1.0) axis.
-    while cursor <= prob:   # While the cursor haven't met the position picked up, the number to return increases.
+    while cursor <= prob:   # While the cursor hasn't met the position picked up, the number to return increases.
         k += 1
         cursor += log10(1 + 1/k)
     return k
@@ -1059,7 +1375,7 @@ def benford(position: int, rng: Random) -> int:
     with the approximation of uniform distribution for digits at position superior to the 1st.
     :param position: The position that the returned number will have in the final number.
     :param rng: A Random instance.
-    :return: an int.
+    :return: An int.
     """
     if position == 1:
         return original(rng)
@@ -1072,7 +1388,7 @@ def dependencies_generator(tasks: List[Task], rng: Random) -> List[Task]:
     Generates a list of Tasks from
     :param tasks: The list of tasks that have already been created.
     :param rng: A Random instance.
-    :return: a list of Tasks.
+    :return: A list of Tasks.
     """
     if not tasks:
         return []
@@ -1100,17 +1416,17 @@ def task_generator(list_nodes: List[Node], list_storage: List[Storage],
     Generates a TaskSchedulingTrace suitable to run on a Simulation.
     :param list_nodes: List of Nodes that will be used in the simulation to which the set of tasks is created for.
     :param list_storage: List of Storage that will be used in the simulation.
-    :param sample_size: The amount of tasks to generate
+    :param sample_size: The number of tasks to generate
     :param task_size: The average amount of TaskSteps per task.
     :param seed: An integer used to initialise the RNG.
-    :return: The set of Task and their respective arrival time as a TaskSchedulingTrace instance.
+    :return: The set of Tasks and their respective arrival time as a TaskSchedulingTrace instance.
     """
-    total_storage_occupation: int = 100000000   # The mean of the amount of data to transfer for an IO step (B).
-    flop: int = 100000000000    # The mean of the amount of operations to perform for a compute step.
+    total_storage_flow: int = 100000000   # The mean of all data to be transferred in an IO step (B).
+    flop: int = 100000000000    # The mean of all operations to be performed in a ComputeStep.
     sigma_task = task_size // 10
     max_cores = max(node.core_count for node in list_nodes)    # The value of the maximum number of cores for
     # a single Task.
-    bandwidth_occupation: float = max(store.throughput for store in list_storage)     # The max bandwidth taken on a
+    io_flow: float = max(store.throughput for store in list_storage)     # The max bandwidth taken on a
     # storage level for an IO step (B/s).
     tasks: List[Task] = []
     timestamps: List[float] = []
@@ -1132,8 +1448,8 @@ def task_generator(list_nodes: List[Node], list_storage: List[Storage],
             number_of_steps = 1
         for kk in range(number_of_steps // 2):  # We create an alternate sequence of IO and Computation steps.
             steps.append(IOTaskStep(task=tasks[-1],
-                                    list_storage=[(storage[0], rng.uniform(0., bandwidth_occupation))],
-                                    total_io_volume=rng.randrange(total_storage_occupation)))
+                                    list_storage=[(storage[0], rng.uniform(0., io_flow))],
+                                    total_io_volume=rng.randrange(total_storage_flow)))
             steps.append(ComputeTaskStep(task=tasks[-1],
                                          flop=rng.randrange(flop)))
         tasks[-1].add_task_steps(steps)
@@ -1147,8 +1463,7 @@ if __name__ == "__main__":
     # print("Nodes: " + ["Empty", "\n  - " + "\n  - ".join(map(str, nodes))][len(nodes) > 0], end="\n\n")
 
     # Creating the storage for our simulation
-    # In our first iteration, there is only a single storage tier
-    storage = [Storage("HDD", 20000000000000, 500e6, 10e-3, [], 0)]
+    storage = [Storage("HDD", 20000000000000, 500e6, 10e-3)]     ### A Remplacer
     # print(f'Storage: {storage[0]}', end="\n\n")
 
     # Creating a set of tasks
@@ -1162,14 +1477,14 @@ if __name__ == "__main__":
     # task2.add_task_steps([cpts2, oits2])
 
     # Create the trace.
-    # trace = TaskSchedulingTrace([task1, task2], [0, 3])
+    # Trace = TaskSchedulingTrace([task1, task2], [0, 3])
     trace = task_generator(nodes, storage, 42, 10, 1)
 
     # Create the scheduler
-    scheduler = NaiveScheduler(nodes, storage)
+    scheduler = NaiveScheduler("Naive_Scheduler_v1", nodes, storage)
 
     # Initialize the simulation
-    simulation = Simulation(nodes, storage, trace, scheduler)
+    simulation = Simulation(nodes, storage, trace, scheduler)   ### Add a list of Files at the middle.
 
     # Run the simulation
     t, energy = simulation.run()
@@ -1187,3 +1502,23 @@ if __name__ == "__main__":
     ax2.set_ylabel('Puissance (W)', color='b')
 
     plt.show()
+
+
+""" Métriques à ressortir :
+Par tâche :
+    instant de soumission (connu)
+    instant de début d'exécution
+    instant de fin d'exécution
+    puissance consommée à chaque instant
+    énergie consommée au fil du tps
+    debit d'I/O au fil du tps
+Par nœud :
+    Puissance consommée à chaque instant
+    énergie dépensée au fil du tps
+Par storage :
+    idem nœud
+Par simulation (on l'exporte déjà en graphique):
+    Tps d'exécution de la liste des tâches
+    Puissance consommée par le total à chaque instant
+    énergie dépensée par le total au fil du tps
+"""
