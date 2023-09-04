@@ -1,9 +1,9 @@
-def pretty_print(value: int or float, unit: str, round_size: int = 3):
+def pretty_print(value: int or float, unit: str, round_size: int = None):
     """
     Pretty-prints a value with adequate unit, multiple and size.
     :param value: The numerical value to be printed (int of float)
     :param unit: The physical unit of value (str)
-    :param round_size: The limit to round the number to print
+    :param round_size: The limit to round the number to print. If parameter is not given, The whole number is returned.
     :return: A nice string of the value with its correct multiple and unit (str)
     """
     units = [(1e30, "Q"), (1e27, "R"), (1e24, "Y"), (1e21, "Z"), (1e18, "E"), (1e15, "P"), (1e12, "T"), (1e9, "G"),
@@ -12,4 +12,7 @@ def pretty_print(value: int or float, unit: str, round_size: int = 3):
              (1e-27, "r"), (1e-30, "q")]
     for threshold, unit_prefix in units:
         if value >= threshold:
-            return f'{round(value / threshold, round_size)} {unit_prefix}{unit}'
+            if round_size:
+                return f"{round(value / threshold, round_size)} {unit_prefix}{unit}"
+            else:
+                return f"{value / threshold} {unit_prefix}{unit}"

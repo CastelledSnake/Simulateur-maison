@@ -20,7 +20,7 @@ class IOTaskStep(TaskStep):
     Describes a step of a task that is dedicated to IO.
     """
 
-    def __init__(self, file: "File", total_io_volume: int, average_io_size: int,
+    def __init__(self, file: "File", rw: str, total_io_volume: int, average_io_size: int,
                  io_pattern: IOPattern = IOPattern.SEQUENTIAL):
         """
         Constructor of IOTaskStep class.
@@ -29,12 +29,14 @@ class IOTaskStep(TaskStep):
         TaskStep.__init__(self)
         self.file: "File" = file
 
+        self.rw = rw
         self.total_io_volume: int = total_io_volume
         self.average_io_size = average_io_size
         self.io_pattern = io_pattern
 
-        self.progress: int = 0  # The progression of the task's execution.
-        self.last_progress_increment: float = 0.  # The time at which the last evaluation of TaskStep's progression occurred.
+        self.available_bandwidth: float = 0.  # The amount of throughput available for I/OTS to perform IOs.
+        self.progress: int = 0  # The number of bytes exchanged so far by the IOTaskStep.
+        self.last_progress_increment: float = 0.  # The time at which the last evaluation of I/OTS progression occurred.
 
     def on_start(self, current_time: float):
         """
@@ -47,7 +49,7 @@ class IOTaskStep(TaskStep):
         assert self.progress == 0 and self.last_progress_increment == 0
         self.last_progress_increment = current_time
 
-        # Throughtput is a shared resource, that we consider here evenly shared between all tasks
+        # Throughput is a shared resource, that we consider here evenly shared between all tasks
         # We inform the used storage that we will be asking for a share for a while
         assert self.file.storage is not None
         self.file.storage.register(self.task)
@@ -69,38 +71,47 @@ class IOTaskStep(TaskStep):
         assert self.task.state is State.EXECUTING_IO
         self.task.state = State.EXECUTING
 
-    def predict_finish_time(self):
+    def predict_finish_time(self, current_time: float):
         """
         Computes an estimation of the remaining time to complete the IOTaskStep,
-            considering resources allocated and assuming there are no perturbations incoming in the system.
+        considering resources allocated and assuming there are no perturbations incoming in the system.
+        :param current_time: The new moment isolated by the simulation.
         :return: The estimated remaining time in seconds (float)
         """
-        remaining_volume_to_write = self.total_io_volume*(1.-self.progress)
-
         assert self.file.storage is not None
+        self.increment_progress(current_time)   # Updates progress done since the last evaluation,
+        # with the last bandwidth available.
+        remaining_volume = self.total_io_volume - self.progress
+        self.available_bandwidth = self.file.storage.get_current_throughput_per_task(self.rw)
+
         if type(self.file.storage) is HDD:
             # if the storage type is HDD, sequential access is faster since latency is negligible
             if self.io_pattern is IOPattern.SEQUENTIAL:
-                return remaining_volume_to_write / self.file.storage.get_current_throughput_per_task()
-            return remaining_volume_to_write / self.file.storage.get_current_throughput_per_task() \
-                + remaining_volume_to_write / self.average_io_size * self.file.storage.latency
+                return remaining_volume / self.available_bandwidth
+            else:
+                return remaining_volume / self.available_bandwidth \
+                    + (remaining_volume / self.average_io_size) * self.file.storage.latency
         elif type(self.file.storage) is SSD:
-            # TODO: different treatment for reads and write for SSD
-            return remaining_volume_to_write / self.file.storage.get_current_throughput_per_task() \
-                + remaining_volume_to_write / self.average_io_size * self.file.storage.latency
+            # TODO Actuellement, la différence de temps entre L et E dans un SSD est donnée par un malus de 20% pour E.
+            eta = remaining_volume / self.available_bandwidth \
+                + (remaining_volume / self.average_io_size) * self.file.storage.latency
+            if self.rw == "r":
+                return eta
+            elif self.rw == "w":
+                return self.file.storage.writing_malus * eta
+            else:
+                raise ValueError(f"Unrecognized kind of I/O : {self.rw}")
         else:
             raise RuntimeError(f'Using unsupported file storage class {type(self.file.storage)}')
 
-    def increment_progress(self, current_time: int):
+    def increment_progress(self, current_time: float):
         """
         Computes the current progression of the IOTaskStep.
+        :param current_time: The new moment isolated by the simulation.
         :return: None
         """
-        assert 0 <= self.progress <= 1
-
-        time_to_completion = self.predict_finish_time()
-        time_step = current_time - self.last_progress_increment
-        self.progress += (1-self.progress)*time_step/time_to_completion
+        assert current_time >= self.last_progress_increment
+        self.progress += int(
+            (current_time - self.last_progress_increment) * self.available_bandwidth / self.file.storage.writing_malus)
+        assert self.progress >= 0
         self.last_progress_increment = current_time
-
-        assert 0 <= self.progress <= 1

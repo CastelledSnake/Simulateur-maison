@@ -1,6 +1,6 @@
 from math import floor, log10
 from random import Random
-from typing import List
+from typing import List, Set
 from model.node import Node
 from model.storage.abstract_storage_tier import Storage
 from model.storage.file import File
@@ -38,16 +38,16 @@ def dependencies_generator(tasks: List[Task], rng: Random) -> List[Task]:
     return deps
 
 
-def trace_generator(list_nodes: List[Node], list_storage: List[Storage], sample_size: int, task_size: int, rng: Random,
-                    preferred_storage: Storage) -> TaskSchedulingTrace:
+def trace_generator(list_nodes: List[Node], list_storage: List[Storage], sample_size: int, task_size: int,
+                    files: Set[File], rng: Random) -> TaskSchedulingTrace:
     """
     Generates a TaskSchedulingTrace suitable to run on a Simulation.
     :param list_nodes: List of Nodes that will be used in the simulation to which the set of tasks is created for.
     :param list_storage: List of Storage that will be used in the simulation.
     :param sample_size: The number of tasks to generate
     :param task_size: The average amount of TaskSteps per task.
-    :param rng: TBD
-    :param preferred_storage:
+    :param files:
+    :param rng:
     :return: The set of Tasks and their respective arrival time as a TaskSchedulingTrace instance.
     """
     total_storage_flow: int = 100000000   # The mean of all data to be transferred in an IO step (B).
@@ -59,25 +59,25 @@ def trace_generator(list_nodes: List[Node], list_storage: List[Storage], sample_
     # storage level for an IO step (B/s).
     tasks: List[Task] = []
     timestamps: List[float] = []
-
-    file_count = 0
     for k in range(sample_size):
         steps: List[TaskStep] = []
         number_of_steps = int(rng.gauss(task_size, sigma_task))
         if number_of_steps <= 0:
             number_of_steps = 1
         for kk in range(number_of_steps // 2):  # We create an alternate sequence of IO and Computation steps.
-            steps.append(IOTaskStep(file=File(name=f'file_{file_count}.txt',
-                                              size=10**rng.randint(0, 10),
-                                              preferred_storage=preferred_storage),
+            if kk//2:   # Suppose that 1 in 2 steps is a reading, and 1 in 2 is writing.
+                rw = "r"
+            else:
+                rw = "w"
+            steps.append(IOTaskStep(rng.sample(files, 1)[0],
+                                    rw=rw,
                                     total_io_volume=rng.randrange(total_storage_flow),
                                     average_io_size=rng.randrange(total_storage_flow//10, total_storage_flow),
                                     io_pattern=IOPattern.SEQUENTIAL))
-            file_count += 1
             steps.append(ComputeTaskStep(flop=rng.randrange(flop)))
         tasks.append(Task(name=f"task_{k}",
                           steps=steps,
-                          min_thread_count=rng.randrange(max_cores),    # We assume that a core takes exactly a thread.
+                          min_thread_count=rng.randrange(1, max_cores),  # We assume that a core takes exactly a thread.
                           dependencies=dependencies_generator(tasks, rng)))
         if timestamps:
             timestamps.append(rng.uniform(timestamps[-1], timestamps[-1] + 10))  # CURRENTLY, the next timestamp is a

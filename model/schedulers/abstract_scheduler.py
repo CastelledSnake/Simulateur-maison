@@ -1,20 +1,6 @@
 from abc import ABC, abstractmethod
-from enum import auto, Enum
 
-
-class Event(Enum):
-    """
-    Describe an event.
-    """
-
-    SIMULATION_START = auto()   # The Simulation just began.
-    TASK_SUBMIT = auto()    # A Task is to be coming to Simulation's view.
-    CALC_STEP_BEGIN = auto()    # A Task is to begin a ComputeTaskStep
-    IO_STEP_BEGIN = auto()  # A Task is to begin an IOTaskStep
-    CALC_STEP_END = auto()  # A Task is to end a ComputeTaskStep
-    IO_STEP_END = auto()    # A Task is to end an IOTaskStep
-    TASK_TERMINAISON = auto()   # A Task is about to end (i.e. its last TaskStep is to end).
-    SIMULATION_TERMINAISON = auto()     # The Simulation is over, because of no remaining Task to execute.
+from simulation.schedule_order import ScheduleOrder
 
 
 class AbstractScheduler(ABC):
@@ -24,6 +10,15 @@ class AbstractScheduler(ABC):
 
     def __str__(self):
         return self.__class__.__name__
+
+    @abstractmethod
+    def task_executed(self, schedule_order: ScheduleOrder):
+        """
+        Performs any modification to be taken into account when Simulation executes a Task.
+        :param schedule_order: the ScheduleOrder that just executed.
+        :return: None
+        """
+        raise NotImplementedError("The abstract method from the abstract class was called.")
 
     @abstractmethod
     def on_new_task(self, task: "Task"):

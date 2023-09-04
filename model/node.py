@@ -9,9 +9,8 @@ class Node:
     Class describing a compute node.
     """
 
-    def __init__(self, name: str, max_frequency: float, min_frequency: float, core_count: int,
-                 static_power: float = 100., sleep_power: float = 0., coefficient_dynamic_power: float = 1e-28,
-                 coefficient_leakage_power: float = 1e-9):
+    def __init__(self, name: str, max_frequency: float, min_frequency: float, core_count: int, static_power: float,
+                 sleep_power: float, coefficient_dynamic_power: float, coefficient_leakage_power: float):
         """
         Constructor of Node class.
         :param name: The name of the Node (str).
@@ -33,7 +32,6 @@ class Node:
         self.sleep_power: float = sleep_power
         self.cdp: float = coefficient_dynamic_power
         self.clp: float = coefficient_leakage_power
-        # TODO : GROSSE INCOHERENCE : avec k = 1 et frequency = 5e9, on dépasse TRES vite les QJ de puissance consommée
         self.busy_cores: int = 0  # Number of cores running a Task on the node.
         self.idle_busy_cores: int = 0  # Number of cores reserved by some Task, but not performing calculations now.
         # By default, we consider that a Task performs calculation on a Node, iff it is in a ComputationTaskStep.
@@ -68,9 +66,12 @@ class Node:
         # une hiérarchie dans les cœurs, et/ou la modélisation des caches dans le processeur,
         # et/ou l'inégalité 1 thread != 1 cœur.
         # Il n'est pas prévu d'implémenter des formules à destination des GPUs.
-        dynamic_power = self.cdp * (self.busy_cores-self.idle_busy_cores) * self.frequency**3
-        leakage_power = self.clp * self.core_count * self.frequency
-        return dynamic_power + leakage_power + self.static_power
+        if self.sleeping:
+            return self.sleep_power
+        else:
+            dynamic_power = self.cdp * (self.busy_cores-self.idle_busy_cores) * self.frequency**3
+            leakage_power = self.clp * self.core_count * self.frequency
+            return dynamic_power + leakage_power + self.static_power
 
     def register(self, task: Task, cores: int):
         """
@@ -83,7 +84,8 @@ class Node:
         self.running_tasks.append(task)
         self.busy_cores += cores
         self.idle_busy_cores += cores   # Idle cores are (de)allocated by ComputeTaskSteps during the execution.
-        assert 0 <= self.idle_busy_cores <= self.busy_cores <= self.core_count
+        if not 0 <= self.idle_busy_cores <= self.busy_cores <= self.core_count:
+            raise ValueError(f"{self}")
 
     def unregister(self, task: Task, cores: int):
         """

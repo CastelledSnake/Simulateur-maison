@@ -8,6 +8,7 @@ class State(Enum):
     """
 
     NOT_SUBMITTED = auto()  # The task has just been defined: the simulated system hasn't heard of it yet.
+    SUBMITTED = auto()  # The Task have just been submitted to the Scheduler, waiting an allocation or queuing decision.
     QUEUED = auto()  # The task has been submitted to the scheduler, but no resource is allocated for it.
     EXECUTING = auto()  # The task has been allocated computation resources, but isn't in a calculation or I/O phase
     EXECUTING_CALCULATION = auto()  # The task is performing some calculations.
@@ -66,7 +67,7 @@ class Task:
         :return: None
         """
         # The task can be executed without having been put in the queue before.
-        assert self.state is State.QUEUED or State.NOT_SUBMITTED
+        assert self.state is State.QUEUED or State.SUBMITTED
         assert self.current_step_index == -1
         assert all([dep.state is State.FINISHED for dep in self.dependencies])
 

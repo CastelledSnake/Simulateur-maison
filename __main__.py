@@ -1,6 +1,7 @@
-from random import Random
 import numpy as np
+from random import Random
 from matplotlib import pyplot as plt
+
 from model.node import Node
 from model.schedulers.fifo_scheduler import NaiveScheduler
 from model.storage.hdd_storage_tier import HDD
@@ -8,6 +9,7 @@ from model.storage.ssd_storage_tier import SSD
 from model.tasks.io_task_step import IOTaskStep
 from simulation.simulation import Simulation
 from simulation.trace_generator import trace_generator
+from simulation.files_generator import files_generator
 
 """ Métriques à ressortir :
 Par tâche :
@@ -33,92 +35,85 @@ if __name__ == "__main__":
     # Cluster configuration #
     #########################
 
-    # Creating the nodes for our cluster simulation
-    nodes = [Node(name=f'cherry{i}', max_frequency=5000000000, min_frequency=1000000000, core_count=core_count)
+    # Creating the nodes for our cluster simulation. TODO: all values have been generated with the pifometric method.
+    nodes = [Node(name=f'Mirabelle_{i}',
+                  max_frequency=5000000000,
+                  min_frequency=1000000000,
+                  core_count=core_count,
+                  static_power=float(core_count),  # 1W per core for static power
+                  sleep_power=5.,
+                  coefficient_dynamic_power=1e-28,
+                  coefficient_leakage_power=1e-10)
              for i, core_count in enumerate([64] * 2 + [128] * 4)]
-    # print("Nodes: " + ["Empty", "\n  - " + "\n  - ".join(map(str, nodes))][len(nodes) > 0], end="\n\n")
+    print("Nodes: " + ["Empty", "\n  - " + "\n  - ".join(map(str, nodes))][len(nodes) > 0], end="\n\n")
     # Creating the storage for our cluster simulation. TODO: all values have been generated with the pifometric method.
     hdd = HDD(name="HDD",
               capacity=int(2e12),
               throughput=int(500e6),
               latency=10e-3,
               disk_radius=0.1,
-              disk_max_spin=1000*np.pi,
-              disk_min_spin=100*np.pi,
+              disk_max_spin=10000 * np.pi,
+              disk_min_spin=1000 * np.pi,
               arm_mass=1e-3,
               arm_radius=0.1,
-              arm_max_spin=np.pi*1e-2,
-              electronic_power=5,
-              sleep_power=1)
-    hdds = [hdd, ]
+              arm_max_spin=1e-2 * np.pi,
+              electronic_power=0.5,
+              sleep_power=1.)
+    hdds = [hdd]
     ssd = SSD(name="SSD",
               capacity=int(2e12),
               throughput=int(500e6),
               latency=10e-6,
               max_read_power=10.,
-              max_write_power=13,
-              leakage_power=2,
-              sleep_power=1)
-    ssds = [ssd, ]
+              max_write_power=13.,
+              leakage_power=2.,
+              sleep_power=1.)
+    ssds = [ssd]
+
     storage = hdds + ssds
-    # print("Storage: \n  -"+"\n  -".join(map(str, storage))+"\n")
+    print("Storage: \n  -"+"\n  -".join(map(str, storage))+"\n")
 
     ####################
     # Trace generation #
     ####################
 
     # Creating a fixed-seed random generator for trace generation
-    rand = Random(123)
+    rand = Random(20100)
+
+    # Create the Files
+    files = files_generator(hdds, ssds, 100, int(10e5), int(10e9), rand)
 
     # Create the trace.
-    trace = trace_generator(nodes, storage, 42, 10, rand, preferred_storage=hdd)
-    # print("Trace:\n  -"+"\n  -".join([f'At timestamp {timestamp}: {trace}' for trace, timestamp in trace.tasks_ts]))
+    trace = trace_generator(nodes, storage, 42, 10, files, rand)
+    print("Trace:\n  -"+"\n  -".join([f'At timestamp {timestamp}: {repr(task)}' for task, timestamp in trace.tasks_ts]))
 
     # And at last, randomly initializing the initial state of the different storage tiers and file
     # files preferences are respected as much as possible
-    files = list(set([step.file
-                      for task in tuple(zip(*trace.tasks_ts))[0]
-                      for step in task.steps if type(step) is IOTaskStep]))
-    rand.shuffle(files)
+    # Try to allocate Files to their preferred Storage. By default, we assume that Storages have enough space to store
+    # all their Files, and that counterexamples are rare.
     for file in files:
-        if file.preferred_storage.occupation+file.size <= file.preferred_storage.capacity:
+        if file.preferred_storage.occupation + file.size <= file.preferred_storage.capacity:
             file.storage = file.preferred_storage
-    for file in files:
-        if file.preferred_storage.capacity - file.preferred_storage.occupation >= file.size:
-            if file not in file.preferred_storage.files:
-                file.preferred_storage.files.add(file)
-                file.preferred_storage.occupation += file.size
-        else:
-            if file.preferred_storage in hdds:
-                available_media = [media for media in hdds if media.capacity - media.occupation >= file.size]
-            else:
-                available_media = [media for media in ssds if media.capacity - media.occupation >= file.size]
-            if len(available_media) == 0:
-                available_media = [media for media in ssds + hdds if
-                                   media.capacity - media.occupation >= file.size]
-            if len(available_media) == 0:
-                raise RuntimeError(f'The following file could not fit in any storage media: {file}')
-            if file not in rand.choice(available_media).files:
-                rand.choice(available_media).files.add(file)
-                rand.choice(available_media).occupation += file.size
-    # print("Files:\n  -"+"\n  - ".join(map(str, sorted(files, key=lambda file: file.name))))
+    # Dealing with counterexamples
+    print("Files:\n  -"+"\n  - ".join(map(str, sorted(files, key=lambda my_file: my_file.name))))
 
     #######################
     # Scheduler selection #
     #######################
 
     # Creating a new fixed-seed random generator for the scheduler itself
-    rand = Random(789)
+    # rand = Random(1)
+    # NaiveScheduler doesn't care about randomness.
 
     # Create the scheduler
-    scheduler = NaiveScheduler("Naive_Scheduler_v1", nodes, storage, rand)
+    scheduler = NaiveScheduler("Naive_Scheduler_v1", nodes, storage)
 
     ####################################
     # Simulation & result presentation #
     ####################################
 
     # Initialize the simulation
-    simulation = Simulation(nodes, [hdd], [ssd], files, trace, scheduler)
+    simulation = Simulation(nodes, [hdd], [ssd], list(files), trace, scheduler)
 
     # Run the simulation
     t, energy = simulation.run()
@@ -136,3 +131,4 @@ if __name__ == "__main__":
     ax2.set_ylabel('Puissance (W)', color='b')
 
     plt.show()
+    # TODO : Set de quelques tâches simples pour test des politiques d'ordonnancement.

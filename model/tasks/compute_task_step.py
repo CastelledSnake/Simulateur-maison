@@ -16,8 +16,9 @@ class ComputeTaskStep(TaskStep):
         """
         TaskStep.__init__(self)
         self.flop: int = flop  # TBD
-        self.progress: int = 0  # The progression of the task's execution.
-        self.last_progress_increment: float = 0.  # The time at which the last evaluation of TaskStep's progression occurred.
+        self.progress: int = 0  # The number of flop performed so far by the ComputeTaskStep.
+        self.last_progress_increment: float = 0.  # The time at which the last evaluation of Step progression occurred.
+        self.available_flops: float = 0.  # The amount of flops the CTS have had access to since last progress update.
 
     def on_start(self, current_time: float):
         """
@@ -51,32 +52,32 @@ class ComputeTaskStep(TaskStep):
         assert self.task.state is State.EXECUTING_CALCULATION
         self.task.state = State.EXECUTING
 
-    def predict_finish_time(self):
+    def predict_finish_time(self, current_time: int):
         """
         Computes an estimation of the remaining time to complete the ComputeTaskStep,
-            considering resources allocated and assuming there are no perturbations incoming in the system.
+        considering resources allocated and assuming there are no perturbations incoming in the system.
+        :param current_time: The new moment isolated by the simulation.
         :return: The estimated remaining time in seconds (float)
         """
+        # Updates progress done since the last evaluation, with the last flops available.
+        self.increment_progress(current_time)
         # Compute the available flops as of now
-        available_flops = 0
+        updated_available_flops = 0
         for node, allocated_cores_count in self.task.allocated_cores:
-            available_flops += node.frequency * allocated_cores_count
-
+            updated_available_flops += node.frequency * allocated_cores_count
+        self.available_flops = updated_available_flops
         # If the simulation class is doing its job, the task step should never overflow
         assert self.progress <= self.flop
 
-        return (self.flop - self.progress) / available_flops
+        return (self.flop - self.progress) / self.available_flops
 
-    def increment_progress(self, current_time: int):
+    def increment_progress(self, current_time: float):
         """
         Computes the current progression of the ComputeTaskStep.
+        :param current_time: The new moment isolated by the simulation.
         :return: None
         """
-        # Compute the available flops as of now
-        available_flops = 0
-        for node, allocated_cores_count in self.task.allocated_cores:
-            available_flops += node.frequency * allocated_cores_count
-
-        self.progress += int((current_time - self.last_progress_increment) * available_flops)
+        assert current_time >= self.last_progress_increment
+        self.progress += int((current_time - self.last_progress_increment) * self.available_flops)
         assert self.progress >= 0
         self.last_progress_increment = current_time

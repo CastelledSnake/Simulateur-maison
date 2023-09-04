@@ -46,7 +46,7 @@ class TaskSchedulingTrace:
         :return: None
         """
         if self.tasks_ts[self.lst+1][0].state in\
-                (State.EXECUTING, State.EXECUTING_IO, State.EXECUTING_CALCULATION, State.QUEUED):
+                (State.SUBMITTED, State.QUEUED, State.EXECUTING, State.EXECUTING_IO, State.EXECUTING_CALCULATION):
             self.lst += 1
         else:
             raise ValueError(f"The method has been called on a Task that has state "

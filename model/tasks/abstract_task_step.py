@@ -1,5 +1,4 @@
 from abc import ABC, abstractmethod
-from enum import Enum, auto
 
 
 class TaskStep(ABC):
@@ -27,10 +26,11 @@ class TaskStep(ABC):
         raise NotImplementedError("The abstract method from the abstract class was called.")
 
     @abstractmethod
-    def predict_finish_time(self):
+    def predict_finish_time(self, current_time: float):
         """
         Computes an estimation of the remaining time to complete the step,
         considering resources allocated and assuming there are no perturbations incoming in the system.
+        :param current_time: The new moment isolated by the simulation.
         :return: The estimated remaining time in seconds (float)
         """
         raise NotImplementedError("The abstract method from the abstract class was called.")
@@ -39,6 +39,7 @@ class TaskStep(ABC):
     def increment_progress(self, current_time: int):
         """
         Computes the current progression of the task step.
+        :param current_time: The new moment isolated by the simulation.
         :return: None
         """
         raise NotImplementedError("The abstract method from the abstract class was called.")
