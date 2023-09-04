@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/Simulateur maison.iml" filepath="$PROJECT_DIR$/.idea/Simulateur maison.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/scheduler_simulation.iml" filepath="$PROJECT_DIR$/.idea/scheduler_simulation.iml" />
     </modules>
   </component>
 </project>
