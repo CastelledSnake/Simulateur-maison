@@ -1,15 +1,19 @@
 import numpy as np
 from random import Random
 from matplotlib import pyplot as plt
+from datetime import datetime
+from typing import List
 
-from model.node import Node
-from model.schedulers.fifo_scheduler import NaiveScheduler
-from model.storage.hdd_storage_tier import HDD
-from model.storage.ssd_storage_tier import SSD
-from model.tasks.io_task_step import IOTaskStep
-from simulation.simulation import Simulation
+from simulation.model import Model
 from simulation.trace_generator import trace_generator
 from simulation.files_generator import files_generator
+from simulation.trace import TaskSchedulingTrace
+from tools.node import Node
+from tools.schedulers.fifo_scheduler import NaiveScheduler
+from tools.schedulers.io_aware_scheduler import IOAwareScheduler
+from tools.storage.hdd_storage_tier import HDD
+from tools.storage.ssd_storage_tier import SSD
+from tools.tasks.io_task_step import IOTaskStep
 
 """ Métriques à ressortir :
 Par tâche :
@@ -30,7 +34,79 @@ Par simulation (on l'exporte déjà en graphique):
     énergie dépensée par le total au fil du tps
 """
 
+
+def time_energy_power_graph_generation(times: List[float], energies: List[float]):
+    """
+    Plots a graph of energy and power as a function of time.
+    It requires a list of moments and a list of energies fitting these times. Power is calculated by deriving
+    energy with respect to time.
+    :param times: A list of floats, representing times.
+    :param energies: A list of floats, representing energy consumption at each time from argument 'times'
+    :return: Shows a graph.
+    """
+    if len(times) != len(energies):
+        raise ValueError(f"'times' has length {len(times)} and 'energy' has length {len(energies)}. "
+                         f"They must be the same.")
+    fig, ax1 = plt.subplots()
+    ax2 = ax1.twinx()
+
+    ax1.plot(times, energies, 'r-*', label="Énergie consommée")
+    ax2.plot(times, np.gradient(energies, times), 'b-', label="Puissance requise")
+    ax2.set_ylim(ymin=0)
+
+    ax1.set_xlabel('Temps (s)')
+    ax1.set_ylabel('Énergie (J)', color='r')
+    ax2.set_ylabel('Puissance (W)', color='b')
+
+    plt.show()
+
+    #################################
+    # Scoring functions definitions #
+    #################################
+
+
+def delay_scoring(delay: List[float], energy: List[float]):
+    """
+    Scoring function only dependent on delay.
+    :param delay: float representing the time taken by one or more Tasks to complete.
+    :return: delay
+    """
+    return delay[-1]
+
+
+def energy_scoring(delay: List[float], energy: List[float]):
+    """
+    Scoring function only dependent on energy.
+    :param energy: float representing the energy taken by the system to complete one or more Tasks.
+    :return: energy
+    """
+    return energy[-1]
+
+
+def edp(delay: List[float], energy: List[float]):
+    """
+    Energy-Delay-Product scoring function. Computes a time-energy trade-off by multiplying delay and energy taken
+    by one or more Tasks to complete on the system.
+    :param delay:
+    :param energy:
+    :return:
+    """
+    return energy[-1] * delay[-1]
+
+
+def ed2p(delay: List[float], energy: List[float]):
+    """
+    Energy-Delay-Squared-Product scoring function. Computes a time-energy trade-off by multiplying energy and
+    squared delay taken by one or more Tasks to complete on the system.
+    :param delay:
+    :param energy:
+    :return:
+    """
+    return energy[-1] * delay[-1] ** 2
+
+
 if __name__ == "__main__":
+
     #########################
     # Cluster configuration #
     #########################
@@ -71,21 +147,22 @@ if __name__ == "__main__":
     ssds = [ssd]
 
     storage = hdds + ssds
-    print("Storage: \n  -"+"\n  -".join(map(str, storage))+"\n")
+    print("Storage: \n  -" + "\n  -".join(map(str, storage)) + "\n")
 
     ####################
-    # Trace generation #
+    # Files generation #
     ####################
 
     # Creating a fixed-seed random generator for trace generation
-    rand = Random(20100)
+    rand_files = Random(20100)
 
     # Create the Files
-    files = files_generator(hdds, ssds, 100, int(10e5), int(10e9), rand)
-
-    # Create the trace.
-    trace = trace_generator(nodes, storage, 42, 10, files, rand)
-    print("Trace:\n  -"+"\n  -".join([f'At timestamp {timestamp}: {repr(task)}' for task, timestamp in trace.tasks_ts]))
+    files = files_generator(hdds=hdds,
+                            ssds=ssds,
+                            number_of_files=123,
+                            min_file_size=int(10e5),
+                            max_file_size=int(10e9),
+                            rng=rand_files)
 
     # And at last, randomly initializing the initial state of the different storage tiers and file
     # files preferences are respected as much as possible
@@ -95,40 +172,98 @@ if __name__ == "__main__":
         if file.preferred_storage.occupation + file.size <= file.preferred_storage.capacity:
             file.storage = file.preferred_storage
     # Dealing with counterexamples
-    print("Files:\n  -"+"\n  - ".join(map(str, sorted(files, key=lambda my_file: my_file.name))))
+    print("Files:\n  -" + "\n  - ".join(map(str, sorted(files, key=lambda my_file: my_file.name))) + "\n")
 
-    #######################
-    # Scheduler selection #
-    #######################
+    #####
+    ##########
+    ####################
+    ########################################
+    # SIMULATIONS GENERATION AND EXECUTION #
+    ########################################
+    ####################
+    ##########
+    #####
 
-    # Creating a new fixed-seed random generator for the scheduler itself
-    # rand = Random(1)
-    # NaiveScheduler doesn't care about randomness.
+    scoring_function = edp
+    metrics_naive: List[float] = []
+    metrics_aware: List[float] = []
+    sample_size = 10
+    for seed in [0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12]:
+        ####################
+        # Trace generation #
+        ####################
+        trace_for_naive = trace_generator(list_nodes=nodes,
+                                          list_storage=storage,
+                                          sample_size=42,
+                                          mean_task_size=10,
+                                          files=files,
+                                          rng=Random(seed))
+        trace_for_aware = trace_generator(list_nodes=nodes,
+                                          list_storage=storage,
+                                          sample_size=42,
+                                          mean_task_size=10,
+                                          files=files,
+                                          rng=Random(seed))
+        # print("Trace:\n  -" + "\n  -".join(
+        #    [f'At timestamp {timestamp}: {repr(task)}' for task, timestamp in trace.tasks_ts]) + "\n")
 
-    # Create the scheduler
-    scheduler = NaiveScheduler("Naive_Scheduler_v1", nodes, storage)
+        ###############################
+        # Simulation model generation #
+        ###############################
 
-    ####################################
-    # Simulation & result presentation #
-    ####################################
+        # Initialize the simulation model
+        model_for_naive = Model(nodes=nodes,
+                                hdds=[hdd],
+                                ssds=[ssd],
+                                list_files=list(files),
+                                tasks_trace=trace_for_naive)
+        model_for_aware = Model(nodes=nodes,
+                                hdds=[hdd],
+                                ssds=[ssd],
+                                list_files=list(files),
+                                tasks_trace=trace_for_aware)
 
-    # Initialize the simulation
-    simulation = Simulation(nodes, [hdd], [ssd], list(files), trace, scheduler)
+        ########################
+        # Scheduler generation #
+        ########################
 
-    # Run the simulation
-    t, energy = simulation.run()
+        # Creating a new fixed-seed random generator for the scheduler itself
+        # rand_scheduler = Random(1)
+        # For now, schedulers don't care about randomness.
 
-    # Print the results
-    fig, ax1 = plt.subplots()
-    ax2 = ax1.twinx()
+        # Create the schedulers
+        naive_scheduler = NaiveScheduler("NaiveScheduler_seed=" + str(seed), model_for_naive)
+        aware_scheduler = IOAwareScheduler("IOAwareScheduler_v1.0_seed=" + str(seed), model_for_aware, scoring_function)
 
-    ax1.plot(t, energy, 'r-*', label="Énergie consommée")
-    ax2.plot(t, np.gradient(energy, t), 'b-', label="Puissance requise")
-    ax2.set_ylim(ymin=0)
+        ########################
+        # Simulation execution #
+        ########################
 
-    ax1.set_xlabel('Temps (s)')
-    ax1.set_ylabel('Énergie (J)', color='r')
-    ax2.set_ylabel('Puissance (W)', color='b')
+        # Run the simulation
+        now = datetime.now()
+        times_naive, energies_naive = model_for_naive.simulate(
+            record_folder=f"enregistrements_automatiques/{naive_scheduler.name}/résultats_du_"
+                          + now.strftime('''%Y-%m-%d_à_%H-%M'-%S"'''),
+            scheduler=naive_scheduler)
+        times_aware, energies_aware = model_for_aware.simulate(
+            record_folder=f"enregistrements_automatiques/{aware_scheduler.name}/résultats_du_"
+                          + now.strftime('''%Y-%m-%d_à_%H-%M'-%S"'''),
+            scheduler=aware_scheduler)
 
-    plt.show()
-    # TODO : Set de quelques tâches simples pour test des politiques d'ordonnancement.
+        metrics_naive.append(scoring_function(times_naive, energies_naive))
+        metrics_aware.append(scoring_function(times_aware, energies_aware))
+        ##########################
+        # Final graph generation #
+        ##########################
+        # time_energy_power_graph_generation(times, energies)
+
+    positive, negative = 0, 0
+    for k in range(len(metrics_naive)):
+        if metrics_naive[k] < metrics_aware[k]:
+            positive += 1
+        else:
+            negative += 1
+
+    print(f"IOAwareScheduler was better in {positive}/{sample_size}, and worst or equal in {negative}/{sample_size}.")
+
+    # TODO : Ensemble de quelques tâches simples pour test des politiques d'ordonnancement.

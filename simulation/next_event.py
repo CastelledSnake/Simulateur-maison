@@ -1,10 +1,9 @@
 from enum import auto, Enum
 from typing import Set
 
-
-from model.utils import pretty_print
-from model.tasks.task import Task
 from simulation.schedule_order import ScheduleOrder
+from tools.utils import pretty_print
+from tools.tasks.task import Task
 
 
 class Event(Enum):
@@ -12,17 +11,17 @@ class Event(Enum):
     Describe an event.
     """
 
-    SIMULATION_START = auto()   # The Simulation just began.
-    TASK_SUBMIT = auto()    # A Task is to be coming to Simulation's view.
-    TASK_BEGIN = auto()     # A task is to be allocated resources for execution.
-    CALC_STEP_BEGIN = auto()    # A Task is to begin a ComputeTaskStep
+    SIMULATION_START = auto()  # The Simulation just began.
+    TASK_SUBMIT = auto()  # A Task is to be coming to Simulation's view.
+    TASK_BEGIN = auto()  # A task is to be allocated resources for execution.
+    CALC_STEP_BEGIN = auto()  # A Task is to begin a ComputeTaskStep
     IO_STEP_BEGIN = auto()  # A Task is to begin an IOTaskStep
     CALC_STEP_END = auto()  # A Task is to end a ComputeTaskStep
-    IO_STEP_END = auto()    # A Task is to end an IOTaskStep
-    TASK_END = auto()   # A Task is about to end (i.e. its last TaskStep is to end).
-    FILE_MOVE_BEGIN = auto()    # A File is to be leaving a Storage.
+    IO_STEP_END = auto()  # A Task is to end an IOTaskStep
+    TASK_END = auto()  # A Task is about to end (i.e. its last TaskStep is to end).
+    FILE_MOVE_BEGIN = auto()  # A File is to be leaving a Storage.
     FILE_MOVE_END = auto()  # A File is to be moved to a new Storage.
-    SIMULATION_TERMINAISON = auto()     # The Simulation is over, because of no remaining Task to execute.
+    SIMULATION_TERMINAISON = auto()  # The Simulation is over, because of no remaining Task to execute.
 
 
 class NextEvent:

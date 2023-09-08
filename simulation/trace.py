@@ -1,5 +1,6 @@
 from typing import List, Tuple
-from model.tasks.task import State, Task
+
+from tools.tasks.task import State, Task
 
 
 class TaskSchedulingTrace:
@@ -19,36 +20,36 @@ class TaskSchedulingTrace:
         self.tasks_ts: List[Tuple[Task, float]] = sorted([(task, timestamp) for task, timestamp
                                                           in zip(tasks, task_submission_timestamps)],
                                                          key=lambda t_ple: t_ple[1])
-        self.lsft: int = -1    # The index of the "Last Surely Finished Task" in the simulation
+        self.lsfti: int = -1  # The "Last Surely Finished Task Index" in the simulation
         # Be careful, it is not the index of the lastly finished Task,
         # it is such as all tasks before it, in the order of their submission timestamps, are already finished.
-        self.lst: int = -1    # The index of the "Last Submitted Task" to simulator's scope.
-        # Note that between the indexes of lft and lst, there can be no Task already submitted,
+        self.lsti: int = -1  # The "Last Submitted Task Index" to simulator's scope.
+        # Note that between the indexes of lsfti and lsti, all Tasks are already submitted,
         # because the Tasks are ordered according to their submission timestamps.
-        # But there can be some already finished Tasks because their purpose is only to focus the simulation on
-        # the most interesting part of the Tasks list, to shorten calculations.
+        # But there can be some already finished Tasks because the purpose of these numbers is only to focus the
+        # simulation on the most interesting part of the Tasks list, to shorten calculations.
 
-    def update_lsft(self):
+    def update_lsfti(self):
         """
         Updates the index of the Last Finished Task.
         :return: None
         """
-        lsft = self.lsft
-        assert (self.tasks_ts[lsft][0].state is State.FINISHED) or (lsft == -1)
-        while lsft < self.lst and self.tasks_ts[lsft+1][0].state is State.FINISHED:
-            lsft += 1
-        self.lsft = lsft
+        lsfti = self.lsfti
+        assert (self.tasks_ts[lsfti][0].state is State.FINISHED) or (lsfti == -1)
+        while (lsfti < self.lsti) and (self.tasks_ts[lsfti + 1][0].state is State.FINISHED):
+            lsfti += 1
+        self.lsfti = lsfti
 
-    def update_lst(self):
+    def update_lsti(self):
         """
         Updates the index of the Last Submitted Task.
         The following task must have already been submitted to the scheduler.
         :return: None
         """
-        if self.tasks_ts[self.lst+1][0].state in\
+        if self.tasks_ts[self.lsti + 1][0].state in \
                 (State.SUBMITTED, State.QUEUED, State.EXECUTING, State.EXECUTING_IO, State.EXECUTING_CALCULATION):
-            self.lst += 1
+            self.lsti += 1
         else:
             raise ValueError(f"The method has been called on a Task that has state "
-                             f"'{self.tasks_ts[self.lst+1][0].state}', "
+                             f"'{self.tasks_ts[self.lsti + 1][0].state}', "
                              f"incompatible with its supposed recent submission.")

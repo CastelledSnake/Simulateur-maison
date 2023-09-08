@@ -10,10 +10,10 @@ def original(rng: Random) -> int:
     """
     prob = rng.random()  # Pick a position on the [0.0, 1.0) segment, following a uniform distribution.
     k = 1
-    cursor = log10(1 + 1/k)  # Cursor that increases on the [0.0, 1.0) axis.
-    while cursor <= prob:   # While the cursor hasn't met the position picked up, the number to return increases.
+    cursor = log10(1 + 1 / k)  # Cursor that increases on the [0.0, 1.0) axis.
+    while cursor <= prob:  # While the cursor hasn't met the position picked up, the number to return increases.
         k += 1
-        cursor += log10(1 + 1/k)
+        cursor += log10(1 + 1 / k)
     return k
 
 

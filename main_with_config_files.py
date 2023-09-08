@@ -4,17 +4,19 @@ from random import Random
 from matplotlib import pyplot as plt
 from os.path import dirname, exists, isfile, join
 from sys import exit
+from datetime import datetime
 
-from model.node import Node
-from model.schedulers.fifo_scheduler import NaiveScheduler
-from model.storage.hdd_storage_tier import HDD
-from model.storage.ssd_storage_tier import SSD
-from model.tasks.io_task_step import IOTaskStep
-from model.tasks.compute_task_step import ComputeTaskStep
-from model.tasks.task import Task
-from model.storage.file import File
-from simulation.simulation import Simulation
+from simulation.model import Model
 from simulation.trace_generator import trace_generator
+from tools.node import Node
+from tools.schedulers.fifo_scheduler import NaiveScheduler
+from tools.storage.hdd_storage_tier import HDD
+from tools.storage.ssd_storage_tier import SSD
+from tools.tasks.io_task_step import IOTaskStep
+from tools.tasks.compute_task_step import ComputeTaskStep
+from tools.tasks.task import Task
+from tools.storage.file import File
+from __main__ import time_energy_graph_generation
 
 if __name__ == "__main__":
     #########################
@@ -88,7 +90,8 @@ if __name__ == "__main__":
         hdds = [HDD(name=hdd_name, capacity=hdd_config["capacity"], throughput=hdd_config["throughput"],
                     latency=hdd_config["latency"], disk_radius=hdd_config["disk_radius"],
                     disk_max_spin=hdd_config["disk_max_spin"], disk_min_spin=hdd_config["disk_min_spin"],
-                    arm_mass=hdd_config["arm_mass"], arm_radius=hdd_config["arm_radius"], arm_max_spin=hdd_config["arm_max_spin"],
+                    arm_mass=hdd_config["arm_mass"], arm_radius=hdd_config["arm_radius"],
+                    arm_max_spin=hdd_config["arm_max_spin"],
                     electronic_power=hdd_config["electronic_power"], sleep_power=hdd_config["sleep_power"])
                 for hdd_name, hdd_config in hdds_config.items()]
 
@@ -209,18 +212,7 @@ if __name__ == "__main__":
     simulation = Simulation(nodes, [hdd], [ssd], files, trace, scheduler)
 
     # Run the simulation
-    t, energy = simulation.run()
+    times, energies = simulation.simulate()
 
     # Print the results
-    fig, ax1 = plt.subplots()
-    ax2 = ax1.twinx()
-
-    ax1.plot(t, energy, 'r-*', label="Énergie consommée")
-    ax2.plot(t, np.gradient(energy, t), 'b-', label="Puissance requise")
-    ax2.set_ylim(ymin=0)
-
-    ax1.set_xlabel('Temps (s)')
-    ax1.set_ylabel('Énergie (J)', color='r')
-    ax2.set_ylabel('Puissance (W)', color='b')
-
-    plt.show()
+    time_energy_power_graph_generation(times, energies)

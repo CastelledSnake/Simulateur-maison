@@ -1,10 +1,10 @@
 from typing import List, Set
 from random import Random
 
-from model.storage.abstract_storage_tier import Storage
-from model.storage.hdd_storage_tier import HDD
-from model.storage.ssd_storage_tier import SSD
-from model.storage.file import File
+from tools.storage.abstract_storage_tier import Storage
+from tools.storage.hdd_storage_tier import HDD
+from tools.storage.ssd_storage_tier import SSD
+from tools.storage.file import File
 
 
 def files_generator(hdds: List[HDD], ssds: List[SSD], number_of_files: int, min_file_size: int, max_file_size: int,

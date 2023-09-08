@@ -1,11 +1,11 @@
 from enum import auto, Enum
 from typing import List, Tuple
 
-from model.utils import pretty_print
-from model.tasks.task import Task
-from model.node import Node
-from model.storage.abstract_storage_tier import Storage
-from model.storage.file import File
+from tools.utils import pretty_print
+from tools.tasks.task import Task
+from tools.node import Node
+from tools.storage.abstract_storage_tier import Storage
+from tools.storage.file import File
 
 
 class Order(Enum):
