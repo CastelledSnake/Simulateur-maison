@@ -9,13 +9,14 @@ class Node:
     Class describing a compute node.
     """
 
-    def __init__(self, name: str, max_frequency: float, min_frequency: float, core_count: int, static_power: float,
+    def __init__(self, name: str, max_frequency: float, min_frequency: float, frequencies: List[float], core_count: int, static_power: float,
                  sleep_power: float, coefficient_dynamic_power: float, coefficient_leakage_power: float):
         """
         Constructor of Node class.
         :param name: The name of the Node (str).
         :param max_frequency: The maximum frequency that Node's clock can reach (Hz).
         :param min_frequency: The minimum frequency that Node's clock can have (Hz).
+        :param frequencies: The list of reachable frequencies for this node
         :param core_count: Total number of cores on the Node (int).
         :param static_power: Basis power consumption (W) of the node, it's the minimal power consumption of the Node
         when it's not sleeping.
@@ -26,7 +27,8 @@ class Node:
         self.name: str = name
         self.max_frequency: float = max_frequency
         self.min_frequency: float = min_frequency
-        self.frequency: float = max_frequency  # By default, the Node takes the highest frequency it can.
+        self.frequencies: List[float] = frequencies
+        self.frequency: float = min_frequency  # Cores initiated at lowest frequency.
         self.core_count: int = core_count
         self.static_power: float = static_power
         self.sleep_power: float = sleep_power

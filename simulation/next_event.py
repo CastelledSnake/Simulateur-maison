@@ -1,5 +1,5 @@
 from enum import auto, Enum
-from typing import Set
+from typing import Dict, Set
 
 from simulation.schedule_order import ScheduleOrder
 from tools.utils import pretty_print
@@ -29,7 +29,8 @@ class NextEvent:
     Data class containing all information required to describe the next event of the Simulation.
     """
 
-    def __init__(self, events: Set[Event], task: Task or None, time: float, order: ScheduleOrder = None):
+    def __init__(self, events: Set[Event], task: Task or None, time: float, order: ScheduleOrder = None,
+                 frequencies: dict["Node", float] = None):
         """
         Constructor of the NextEvent class.
         :param events: The set of Events to be happening.
@@ -42,11 +43,12 @@ class NextEvent:
         self.task: Task or None = task
         self.time: float = time
         self.order: ScheduleOrder = order
+        self.frequencies = frequencies
 
     def __repr__(self):
         r: str = f"NEXT_EVENT : {self.events} "
         if self.task:
-            r += f"on task {self.task}[{self.task.current_step_index}] "
+            r += f"on task {self.task}[{self.task.current_step_index}] at freq : {self.frequencies} "
         r += f"at {pretty_print(self.time, 's')} "
         if self.order:
             r += f"{self.order}"

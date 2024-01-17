@@ -115,6 +115,8 @@ if __name__ == "__main__":
     nodes = [Node(name=f'Mirabelle_{i}',
                   max_frequency=5000000000,
                   min_frequency=1000000000,
+                  frequencies=[1000000000, 1500000000, 2000000000, 2500000000, 3000000000, 3500000000, 4000000000,
+                               4500000000, 5000000000],
                   core_count=core_count,
                   static_power=float(core_count),  # 1W per core for static power
                   sleep_power=5.,
@@ -187,8 +189,8 @@ if __name__ == "__main__":
     scoring_function = edp
     metrics_naive: List[float] = []
     metrics_aware: List[float] = []
-    sample_size = 10
-    for seed in [0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12]:
+    seeds = [0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12]
+    for seed in seeds:
         ####################
         # Trace generation #
         ####################
@@ -259,11 +261,13 @@ if __name__ == "__main__":
 
     positive, negative = 0, 0
     for k in range(len(metrics_naive)):
-        if metrics_naive[k] < metrics_aware[k]:
+        if metrics_naive[k] > metrics_aware[k]:
             positive += 1
         else:
             negative += 1
 
-    print(f"IOAwareScheduler was better in {positive}/{sample_size}, and worst or equal in {negative}/{sample_size}.")
+    print(f"IOAwareScheduler was better in {positive}/{len(seeds)}, and worst or equal in {negative}/{len(seeds)}.")
+    for k in range(len(seeds)):
+        print(f"{metrics_naive[k]} VS {metrics_aware[k]}")
 
     # TODO : Ensemble de quelques tâches simples pour test des politiques d'ordonnancement.

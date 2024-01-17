@@ -14,8 +14,9 @@ from tools.tasks.task import Task, State
 
 
 class IOAwareScheduler(AbstractScheduler):
+    # TODO Traduire en anglais.
     """
-    This IO-aware scheduler works as follow :  # TODO Traduire en Anglais
+    This IO-aware scheduler works as follow :
     L’ordonnanceur commence par exécuter la tâche 0, qui arrive à l’instant 0.
     Tant que toutes les tâches n’ont pas été exécutées :
         Lorsqu’une nouvelle tâche N est soumise à l’ordonnanceur :
@@ -39,8 +40,8 @@ class IOAwareScheduler(AbstractScheduler):
         """
         Constructor of the IOAwareScheduler class.
         :param name: String to name the Scheduler.
-        :param model:
-        :param scoring_function:
+        :param model: The simulation model on which the scheduler schedules.
+        :param scoring_function: The math function used as the metric, for performances.
         """
         # List containing all the available resources :
         AbstractScheduler.__init__(self, name, model, scoring_function)
@@ -137,7 +138,8 @@ class IOAwareScheduler(AbstractScheduler):
         light_model.next_event = NextEvent(events={Event.SIMULATION_START},
                                            task=None,
                                            time=0.,
-                                           order=None)
+                                           order=None,
+                                           frequencies=None)
         while not exe:
             while (Event.TASK_END not in light_model.next_event.events) \
                     and (Event.SIMULATION_TERMINAISON not in light_model.next_event.events):

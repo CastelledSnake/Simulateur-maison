@@ -122,7 +122,8 @@ class AbstractScheduler(ABC):
         :param schedule_order: the ScheduleOrder that just executed.
         :return: None
         """
-        assert self.model.time[-1] == schedule_order.time
+        assert self.model.time[-1] >= schedule_order.time  # Ideally, one would assert equality, but the delayed orders
+        # make this unavailable.
         for (node, cores) in schedule_order.task.allocated_cores:
             self.pre_allocated_cores[node][schedule_order.task] -= cores
 

@@ -1,6 +1,6 @@
 from _csv import writer
 from math import inf
-from typing import List, Set
+from typing import Dict, List, Set
 from os import makedirs
 
 from colorama import Style, Fore, Back
@@ -17,20 +17,22 @@ from tools.tasks.task import Task, State
 from tools.utils import pretty_print
 
 
-def _nature_of_step_end(step_type: State, task: Task, fin_step: float) -> NextEvent:
+def _nature_of_step_end(step_type: State, task: Task, fin_step: float,
+                        frequencies: Dict[Node, float] = None) -> NextEvent:
     """
     Determines what is the exact kind of TaskStep ending (i.e. the type of the step ending and whether the whole)
     Also states if Task is finished or not.
     :param step_type: The type of the TaskStep ending.
     :param task: The Task to which the Step belongs.
     :param fin_step: The time at which the Step should end.
+    :param frequencies: The couples of nodes and, for each, its associated frequency.
     :return: A NextEvent object.
     """
     # By default, the step's end is not the task's end, because there may be another step following.
     if step_type == State.EXECUTING_IO:
-        next_event = NextEvent({Event.IO_STEP_END}, task, fin_step, None)
+        next_event = NextEvent({Event.IO_STEP_END}, task, fin_step, None, frequencies)
     elif step_type == State.EXECUTING_CALCULATION:
-        next_event = NextEvent({Event.CALC_STEP_END}, task, fin_step, None)
+        next_event = NextEvent({Event.CALC_STEP_END}, task, fin_step, None, frequencies)
     else:
         raise ValueError(f"Simulation.step_type has the value '{step_type}', unappropriated for a step_end.")
     if task.current_step_index == len(task.steps) - 1:
@@ -71,7 +73,12 @@ class Model:
         for task_t in self.tasks_trace.tasks_ts:
             self.energies[task_t[0]] = 0.
         self.next_orders: Set[ScheduleOrder] = set()
+        self.delayed_orders: Set[ScheduleOrder] = set()
         self.record_folder: str = ""
+
+        for node in nodes:
+            if node.frequencies != nodes[0].frequencies:
+                raise ValueError(f"Impossible to have different sets of node frequencies currently.")
 
     def __str__(self, scheduler=None):
         if scheduler:
@@ -137,6 +144,16 @@ class Model:
             else:
                 raise TypeError(f"'{element} has type {type(element)}, not implemented.")
 
+    def change_frequency(self):
+        """
+        Sets the frequency of all nodes implicated in the next event (Model.next_event)
+        to the frequencies required by the next_event.
+        :return: None
+        """
+        assert self.next_event.frequencies is not None
+        for node in self.next_event.frequencies.keys():
+            node.frequency = self.next_event.frequencies[node]
+
     def update_next_event(self, scheduler):
         """
         Determines what is the next event in the simulation.
@@ -152,23 +169,46 @@ class Model:
             next_event = NextEvent(events={Event.TASK_SUBMIT},
                                    task=self.tasks_trace.tasks_ts[lsti + 1][0],
                                    time=self.tasks_trace.tasks_ts[lsti + 1][1],
-                                   order=None)
+                                   order=None,
+                                   frequencies=None)
         else:
-            next_event = NextEvent({Event.TASK_SUBMIT}, None, inf, None)
+            next_event = NextEvent({Event.TASK_SUBMIT}, None, inf, None, None)
         # Searching for the next_event among oncoming ScheduleOrders.
+        correspondance = [(Order.START_TASK, Event.TASK_BEGIN),
+                          (Order.START_IOTASKSTEP, Event.IO_STEP_BEGIN),
+                          (Order.TRANSFER_FILE, Event.FILE_MOVE_BEGIN)]
+        for order in self.delayed_orders:
+            if all([dep.state is State.FINISHED for dep in order.task.dependencies]):
+                next_event = NextEvent({Event.TASK_BEGIN}, order.task, self.time[-1], order, None)
+                self.next_event = next_event
+                return
         for order in self.next_orders:
-            if order.time <= next_event.time:
-                correspondance = [(Order.START_TASK, Event.TASK_BEGIN),
-                                  (Order.START_IOTASKSTEP, Event.IO_STEP_BEGIN),
-                                  (Order.TRANSFER_FILE, Event.FILE_MOVE_BEGIN)]
+            if order in self.delayed_orders:
+                pass
+            elif order.time <= next_event.time:
                 for order_kind, event_kind in correspondance:
                     if order.order == order_kind:
-                        next_event = NextEvent({event_kind}, order.task, order.time, order)
+                        next_event = NextEvent({event_kind}, order.task, order.time, order, None)
         # Searching for the next_event on all launched but non-finished tasks.
         for task_t in self.tasks_trace.tasks_ts[self.tasks_trace.lsfti + 1: lsti + 1]:  # task_t stands for "task, time"
-            if task_t[0].state in [State.EXECUTING_CALCULATION, State.EXECUTING_IO]:
-                fin_step = task_t[0].steps[task_t[0].current_step_index].predict_finish_time(self.time[-1]) \
-                           + self.time[-1]
+            if task_t[0].state == State.EXECUTING_CALCULATION:
+                # Get all nodes implicated in the task execution
+                implicated_nodes = dict()
+                for node_c in task_t[0].allocated_cores:
+                    implicated_nodes[node_c[0]] = node_c[0].min_frequency
+                # Test of all frequencies available for the task and its nodes.
+                for freq in self.nodes[0].frequencies:
+                    # TODO : We test the scenarii where each nodes of the task have the same frequency simultaneously,
+                    #  considering it is very rare that one task is executed on several nodes.
+                    for node in implicated_nodes:
+                        implicated_nodes[node] = freq
+                    fin_step = task_t[0].steps[task_t[0].current_step_index].predict_finish_time(
+                        self.time[-1], implicated_nodes) + self.time[-1]
+                    if fin_step <= next_event.time:
+                        next_event = _nature_of_step_end(task_t[0].state, task_t[0], fin_step, implicated_nodes)
+            if task_t[0].state == State.EXECUTING_IO:
+                fin_step = task_t[0].steps[task_t[0].current_step_index].predict_finish_time(
+                    self.time[-1]) + self.time[-1]
                 if fin_step <= next_event.time:
                     next_event = _nature_of_step_end(task_t[0].state, task_t[0], fin_step)
         # If no task performs any action, it means all tasks have been executed: this is the end of the simulation.
@@ -184,6 +224,8 @@ class Model:
         task: Task = self.next_event.task
         task.steps[task.current_step_index].on_finish()
         task.current_step_index += 1
+        if self.next_event.frequencies:
+            self.change_frequency()
         task.steps[task.current_step_index].on_start(self.time[-1])
 
     def update_time(self, time: float):
@@ -306,12 +348,24 @@ class Model:
         :param scheduler: The Scheduler that the simulation uses, if any.
         :return:
         """
-        assert self.next_event.order.time == self.next_event.time == self.time[-1]  # Assert that the Task is launched
+        # If one Task should be executed, but all of its dependencies is not finished yet (as it can happen when many
+        # tasks are executed at the same time), the order is placed in the waiting list.
+        if not all([dep.state is State.FINISHED for dep in self.next_event.task.dependencies]):
+            self.delayed_orders.update({self.next_event.order})
+            return new_orders
+        if self.next_event.order not in self.delayed_orders:
+            # Assert that the Task is launched.
+            assert self.next_event.order.time == self.next_event.time == self.time[-1]
         # at the planned moment.
+        if self.next_event.frequencies:
+            self.change_frequency()
         self.next_event.task.on_start(self.next_event.order.nodes, self.next_event.order.time)  # Begins the Task.
         if scheduler:
             scheduler.task_launched(self.next_event.order)  # Informs the Scheduler that the Task is now executing.
         self.next_orders.remove(self.next_event.order)  # Remove the order from the remaining ones.
+        # If the order was delayed, it is removed from the awaiting list.
+        if self.next_event.order in self.delayed_orders:
+            self.delayed_orders.remove(self.next_event.order)
         return new_orders
 
     def task_end(self, new_orders: List[ScheduleOrder], scheduler=None):
@@ -324,6 +378,8 @@ class Model:
         # If a scheduler is given, the simulation must inform it that a Task has just finished, to get some orders.
         # Otherwise, the simulation must already have a full agenda for all Tasks in its scope. So no need for an order.
         self.next_event.task.on_finish()
+        if self.next_event.frequencies:
+            self.change_frequency()
         if scheduler:
             print(Fore.RED + repr(self.next_event.task) + Style.RESET_ALL)
             new_orders = scheduler.on_task_finished(self.next_event.task)
@@ -385,7 +441,8 @@ class Model:
         self.next_orders.update(new_orders)
         self.update_next_event(scheduler)
         output = self.update_physics(self.next_event.time)
-        print(f"RECORD FOLDER : {record_folder}")
+        if record_folder:
+            print(f"RECORD FOLDER : {record_folder}")
         if record_folder:
             self.save_physics(output)
         self.event += 1
@@ -405,7 +462,8 @@ class Model:
                                                task=None,
                                                time=0.,
                                                order=None)
-        if record_folder:
+        if record_folder != "":
+            print(Fore.RED + f"RECORD FOLDER : {record_folder}" + Style.RESET_ALL)
             self.initiate_folders(record_folder)
         if not self.tasks_trace.tasks_ts:
             print(Fore.GREEN + repr(self.next_event) + Style.RESET_ALL)
@@ -421,6 +479,7 @@ class Model:
             raise AssertionError(Fore.BLACK + Back.RED
                                  + f"Simulation ended without to execute all tasks. Tasks remaining : "
                                    f"{list(map(str, scheduler.queue))}" + Style.RESET_ALL)
+        # Printing info about non-finished tasks, if any.
         remaining: List[Task] = []
         for task_t in self.tasks_trace.tasks_ts:
             if task_t[0].state != State.FINISHED:

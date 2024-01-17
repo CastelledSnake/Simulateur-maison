@@ -1,3 +1,5 @@
+from typing import Dict
+
 from tools.tasks.abstract_task_step import TaskStep
 from tools.tasks.task import State
 
@@ -51,24 +53,30 @@ class ComputeTaskStep(TaskStep):
         assert self.task.state is State.EXECUTING_CALCULATION
         self.task.state = State.EXECUTING
 
-    def predict_finish_time(self, current_time: int):
+    def predict_finish_time(self, current_time: int, frequencies: dict["Node", float] = None):
         """
         Computes an estimation of the remaining time to complete the ComputeTaskStep,
         considering resources allocated and assuming there are no perturbations incoming in the system.
         :param current_time: The new moment isolated by the simulation.
-        :return: The estimated remaining time in seconds (float)
+        :param frequencies: each couple (Node, frequency) to be taken into account for calculation speed.
+        :return: The estimated remaining time in seconds (float).
         """
         # Updates progress done since the last evaluation, with the last flops available.
         self.increment_progress(current_time)
-        # Compute the available flops as of now
+        # Compute the available flops as of now.
         updated_available_flops = 0
         for node, allocated_cores_count in self.task.allocated_cores:
-            updated_available_flops += node.frequency * allocated_cores_count
-        self.available_flops = updated_available_flops
+            if frequencies:
+                updated_available_flops += frequencies[node] * allocated_cores_count
+            else:
+                updated_available_flops += node.frequency * allocated_cores_count
+                self.available_flops = updated_available_flops
+        # TODO Available flops are computed at determination of remaining time ==> Il faudra allouer le bon nombre de
+        #  available_flops à chaque décision de changement de fréquence.
         # If the simulation class is doing its job, the task step should never overflow
         assert self.progress <= self.flop
 
-        return (self.flop - self.progress) / self.available_flops
+        return (self.flop - self.progress) / updated_available_flops
 
     def increment_progress(self, current_time: float):
         """
