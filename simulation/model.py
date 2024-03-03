@@ -178,7 +178,9 @@ class Model:
                           (Order.START_IOTASKSTEP, Event.IO_STEP_BEGIN),
                           (Order.TRANSFER_FILE, Event.FILE_MOVE_BEGIN)]
         for order in self.delayed_orders:
-            if all([dep.state is State.FINISHED for dep in order.task.dependencies]):
+            if (all([dep.state is State.FINISHED for dep in order.task.dependencies])
+                    and all([cores <= node.core_count - node.busy_cores for (node, cores) in order.nodes])):
+                # If all dependencies are finished and all required cores are free, the order is no longer delayed.
                 next_event = NextEvent({Event.TASK_BEGIN}, order.task, self.time[-1], order, None)
                 self.next_event = next_event
                 return
@@ -213,6 +215,13 @@ class Model:
                     next_event = _nature_of_step_end(task_t[0].state, task_t[0], fin_step)
         # If no task performs any action, it means all tasks have been executed: this is the end of the simulation.
         if next_event.time == inf:
+            remaining = []
+            for task_t in self.tasks_trace.tasks_ts:
+                if task_t[0].state != State.FINISHED:
+                    remaining.append(task_t[0])
+            if remaining:
+                print(Fore.RED + f"Remaining tasks : {remaining}" + Style.RESET_ALL)
+                raise ValueError(f"Simulation has ended but some tasks are not finished.")
             next_event = NextEvent({Event.SIMULATION_TERMINAISON}, None, self.time[-1], None)
         self.next_event = next_event
 
@@ -348,15 +357,20 @@ class Model:
         :param scheduler: The Scheduler that the simulation uses, if any.
         :return:
         """
-        # If one Task should be executed, but all of its dependencies is not finished yet (as it can happen when many
-        # tasks are executed at the same time), the order is placed in the waiting list.
+        # If one Task should be executed but, either all of its dependencies are not finished yet, or the cores to
+        # allocate to it are not yet free (as it can happen when many tasks are executed at the same time),
+        # the order is placed in the waiting list.
+        for (node, cores) in self.next_event.order.nodes:
+            if cores > node.core_count - node.busy_cores:
+                # One of the nodes is not ready yet to execute the incoming Task.
+                self.delayed_orders.update({self.next_event.order})
+                return new_orders
         if not all([dep.state is State.FINISHED for dep in self.next_event.task.dependencies]):
             self.delayed_orders.update({self.next_event.order})
             return new_orders
         if self.next_event.order not in self.delayed_orders:
-            # Assert that the Task is launched.
+            # If the Order was not delayed, assert that the Task is launched at the planned moment.
             assert self.next_event.order.time == self.next_event.time == self.time[-1]
-        # at the planned moment.
         if self.next_event.frequencies:
             self.change_frequency()
         self.next_event.task.on_start(self.next_event.order.nodes, self.next_event.order.time)  # Begins the Task.
@@ -486,6 +500,6 @@ class Model:
                 remaining.append(task_t[0])
         if remaining:
             raise AssertionError(Fore.BLACK + Back.RED
-                                 + f"Simulation ended without to finish all tasks.  Tasks not ended : "
+                                 + f"Simulation ended without to finish all tasks. Tasks not ended : "
                                    f"{list(map(str, remaining))}" + Style.RESET_ALL)
         return self.time, self.energy

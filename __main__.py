@@ -4,6 +4,8 @@ from matplotlib import pyplot as plt
 from datetime import datetime
 from typing import List
 
+from colorama import Style, Fore, Back
+
 from simulation.model import Model
 from simulation.trace_generator import trace_generator
 from simulation.files_generator import files_generator
@@ -187,9 +189,11 @@ if __name__ == "__main__":
     #####
 
     scoring_function = edp
-    metrics_naive: List[float] = []
-    metrics_aware: List[float] = []
-    seeds = [0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12]
+    metrics_naive: List = []
+    metrics_aware: List = []
+    timelapses_naive: List[float] = []
+    timelapses_aware: List[float] = []
+    seeds = range(10)
     for seed in seeds:
         ####################
         # Trace generation #
@@ -242,18 +246,24 @@ if __name__ == "__main__":
         ########################
 
         # Run the simulation
-        now = datetime.now()
+        t0 = datetime.now()  # The time for formatted record folder name.
+        # A previous version was using the syntax '''%Y-%m-%d_à_%H-%M'-%S"''' for the date format.
         times_naive, energies_naive = model_for_naive.simulate(
-            record_folder=f"enregistrements_automatiques/{naive_scheduler.name}/résultats_du_"
-                          + now.strftime('''%Y-%m-%d_à_%H-%M'-%S"'''),
+            record_folder=f"enregistrements_automatiques_lol/{naive_scheduler.name}/résultats_du_"
+                          + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
             scheduler=naive_scheduler)
+        t1 = datetime.now()
         times_aware, energies_aware = model_for_aware.simulate(
-            record_folder=f"enregistrements_automatiques/{aware_scheduler.name}/résultats_du_"
-                          + now.strftime('''%Y-%m-%d_à_%H-%M'-%S"'''),
+            record_folder=f"enregistrements_automatiques_lol/{aware_scheduler.name}/résultats_du_"
+                          + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
             scheduler=aware_scheduler)
+        t2 = datetime.now()
 
         metrics_naive.append(scoring_function(times_naive, energies_naive))
         metrics_aware.append(scoring_function(times_aware, energies_aware))
+        timelapses_naive.append(t1 - t0)
+        timelapses_aware.append(t2 - t1)
+
         ##########################
         # Final graph generation #
         ##########################
@@ -267,7 +277,10 @@ if __name__ == "__main__":
             negative += 1
 
     print(f"IOAwareScheduler was better in {positive}/{len(seeds)}, and worst or equal in {negative}/{len(seeds)}.")
+    print(Fore.RED + f"Naive VS Aware\n    Naive VS Aware" + Style.RESET_ALL)
     for k in range(len(seeds)):
         print(f"{metrics_naive[k]} VS {metrics_aware[k]}")
+        print(f"    {timelapses_naive[k]} VS {timelapses_aware[k]}")
+
 
     # TODO : Ensemble de quelques tâches simples pour test des politiques d'ordonnancement.

@@ -39,7 +39,7 @@ class AbstractScheduler(ABC):
         self.name: str = name  # To create a folder with records.
         self.model = model
         self.pre_allocated_cores: Dict[Node: Dict[Union[Task, NoneType]: int]] = {}  # When a Task required by many
-        # others finishes, Scheduler will generate ScheduleOrders on these Tasks, making some cores 'pre-allocated'.
+        # other finishes, Scheduler will generate ScheduleOrders on these Tasks, making some cores 'pre-allocated'.
         # This dictionary allows the Scheduler to remember which cores should be considered occupied before receiving
         # NextEvents.
         for node in self.model.nodes:
@@ -80,7 +80,7 @@ class AbstractScheduler(ABC):
         av_nodes: List[Tuple[Node, int]] = []
         total_av_cores: int = 0
         for node in self.model.nodes:
-            unoccupied = node.core_count - node.busy_cores - sum(self.pre_allocated_cores[node].values())
+            unoccupied = (node.core_count - node.busy_cores) - min([sum(self.pre_allocated_cores[node].values()), node.core_count - node.busy_cores])
             if task in self.pre_allocated_cores[node]:  # If a Task is already planned on the disk, we must not take
                 # the cores it will have as unavailable ones.
                 unoccupied += self.pre_allocated_cores[node][task]

@@ -110,7 +110,9 @@ class IOTaskStep(TaskStep):
         :param current_time: The new moment isolated by the simulation.
         :return: None
         """
-        assert current_time >= self.last_progress_increment
+        if current_time < self.last_progress_increment:
+            print(f"current_time = {current_time}, last_progress_increment = {self.last_progress_increment}")
+            raise ValueError("Time is going backward.")
         self.progress += int(
             (current_time - self.last_progress_increment) * self.available_bandwidth / self.file.storage.writing_malus)
         assert self.progress >= 0

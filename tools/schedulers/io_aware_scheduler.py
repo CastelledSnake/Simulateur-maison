@@ -1,4 +1,3 @@
-# from random import Random
 from math import inf
 from typing import List, Tuple, Dict, Set
 from copy import *
@@ -9,7 +8,6 @@ from simulation.next_event import Event, NextEvent
 from simulation.model import Model
 from tools.node import Node
 from tools.schedulers.abstract_scheduler import AbstractScheduler
-# from tools.storage.abstract_storage_tier import Storage
 from tools.tasks.task import Task, State
 
 
@@ -115,7 +113,7 @@ class IOAwareScheduler(AbstractScheduler):
 
     def find_resources(self, task: Task) -> Tuple[List[Tuple[Node, int]], float]:
         """
-        Get the soonest moment such as the simulation will be able to execute the task in parameter, and get the cores
+        Get the soonest moment such that the simulation will be able to execute the task in parameter, and get the cores
         on which this Task shall be executed. The soonest moment verifies the following conditions :
         - Enough cores can be booked for the task.
         - All Task's dependencies are finished.
@@ -141,12 +139,33 @@ class IOAwareScheduler(AbstractScheduler):
                                            order=None,
                                            frequencies=None)
         while not exe:
+            # We need to find the soonest moment where the Task can be executed.
+            # So we wait til a Task finishes to get new available cores.
             while (Event.TASK_END not in light_model.next_event.events) \
                     and (Event.SIMULATION_TERMINAISON not in light_model.next_event.events):
                 light_model.simulation_step()
+            freed_cores = light_model.next_event.task.allocated_cores
+            # Add these new free cores to the list of available cores.
+            for (f_node, f_cores) in freed_cores:
+                tot_av_cores += f_cores
+                # All Nodes from freed_cores are the ones from light_model : different objects from the model Nodes.
+                for k in range(len(av_nodes)):
+                    if av_nodes[k][0].name == f_node.name:
+                        av_nodes[k] = (av_nodes[k][0], av_nodes[k][1] + f_cores)
+                        break
+                else:
+                    for true_node in self.model.nodes:
+                        if true_node.name == f_node.name:
+                            av_nodes.append((true_node, f_cores))
+                            break
+
             exe = (self.all_dependencies_check(task, light_model)) and (tot_av_cores >= m_cores)
             if not exe:
-                raise OverflowError(f"Impossible to execute {task} on system {self.model.nodes}.")
+                light_model.simulation_step()
+        if not exe:
+            # A security measure to raise a concern if no appropriate moment was found, even if the simulation terminated.
+            raise OverflowError(f"Impossible to execute {task} on system {self.model.nodes}.")
+        # Time is found, so we can book resources.
         time_begin = light_model.time[-1]
         reserved_nodes = self.book_least_used_cores(task, av_nodes)
         return reserved_nodes, time_begin
@@ -155,9 +174,9 @@ class IOAwareScheduler(AbstractScheduler):
         """
         Executes the light simulation related to the submission of a Task at time_begin, on given resources and return
         metrics. If one of these parameters is not given, returns the metrics of the base light simulation
-        :param task:
-        :param time_begin:
-        :param resources:
+        :param task: a new Task to be submitted. Can be None if we just want to execute only the already planned Tasks.
+        :param time_begin: if any, the time the new Task should begin.
+        :param resources: if any, the resources on which the new Task should be executed.
         :return:
         """
         if task and (time_begin is not None) and resources:  # If all optional parameters are filled, this light
@@ -183,7 +202,7 @@ class IOAwareScheduler(AbstractScheduler):
                                                     secondary_orders=self.model.next_orders)
         return self.simulation_overview(light_model_baseline)
 
-    def on_new_task(self, task: "Task"):
+    def on_new_task(self, task: "Task") -> {ScheduleOrder}:
         """
         Deals with the arrival of a new task in the queue of candidates.
         :param task: The oncoming task.

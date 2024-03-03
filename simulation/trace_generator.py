@@ -70,13 +70,14 @@ def trace_generator(list_nodes: List[Node], list_storage: List[Storage], sample_
                 rw = "r"
             else:
                 rw = "w"
-            steps.append(IOTaskStep(rng.sample(files, 1)[0],
+            steps.append(IOTaskStep(rng.sample(list(files), 1)[0],
                                     rw=rw,
                                     total_io_volume=rng.randrange(total_storage_flow),
                                     average_io_size=rng.randrange(total_storage_flow // 10, total_storage_flow),
                                     io_pattern=IOPattern.SEQUENTIAL))
             steps.append(ComputeTaskStep(flop=rng.randrange(flop)))
-        # TODO ASTUCE,.
+        """
+        # ASTUCE
         #  Faute de temps, pour se prémunir d'un bogue qui interrompt la simulation lorsqu'un tâche doit s'exécuter
         #  très légèrement avant une autre : on se prémunit de faire dépendre une tâche de l'une de ses 5 précédentes
         #  comparses.
@@ -92,6 +93,12 @@ def trace_generator(list_nodes: List[Node], list_storage: List[Storage], sample_
                               min_thread_count=rng.randrange(1, max_cores),
                               # We assume that a core takes exactly a thread.
                               dependencies=dependencies_generator([], rng)))
+        """
+        tasks.append(Task(name=f"task_{k}",
+                          steps=steps,
+                          min_thread_count=rng.randrange(1, max_cores),
+                          # We assume that a core takes exactly a thread.
+                          dependencies=dependencies_generator(tasks, rng)))
         if timestamps:
             timestamps.append(rng.uniform(timestamps[-1], timestamps[-1] + 10))  # CURRENTLY, the next timestamp is a
             # float taken from a uniform distribution over the interval coming from the last timestamp declared, up
