@@ -95,7 +95,7 @@ class IOAwareScheduler(AbstractScheduler):
     @staticmethod
     def simulation_overview(light_simulation, new_order: ScheduleOrder = None):
         """
-        Executes the entire simulation considering no new Task is to be submitted, except the one given in new_order,
+        Executes an entire simulation considering no new Task is to be submitted, except the one given in new_order,
         if any. According to these thesis, computes, time and energy that this light simulation will experience.
         :param light_simulation: The light simulation on which we want an overview.
         :param new_order: Optional argument : if the user wants the overview to begin one new Task, it can do so
@@ -188,8 +188,9 @@ class IOAwareScheduler(AbstractScheduler):
             secondary_orders = self.model.next_orders.copy()
             light_model: Model = self.model_deep_copy(main_order=new_order,
                                                       secondary_orders=secondary_orders)
-            return self.simulation_overview(light_model, new_order)
-        if (task and time_begin and not resources) \
+            return self.simulation_overview(light_simulation=light_model,
+                                            new_order=new_order)
+        elif (task and time_begin and not resources) \
                 or (task and (time_begin is None) and resources) \
                 or ((not task) and time_begin and resources) \
                 or ((not task) and (time_begin is None) and resources) \
@@ -198,9 +199,10 @@ class IOAwareScheduler(AbstractScheduler):
             raise NotImplementedError(f"At least one of the required elements required to execute a new Task "
                                       f"is not given")
         # Otherwise, this light simulation is executed to obtain a baseline.
-        light_model_baseline = self.model_deep_copy(main_order=None,
-                                                    secondary_orders=self.model.next_orders)
-        return self.simulation_overview(light_model_baseline)
+        else:
+            light_model_baseline = self.model_deep_copy(main_order=None,
+                                                        secondary_orders=self.model.next_orders)
+            return self.simulation_overview(light_simulation=light_model_baseline)
 
     def on_new_task(self, task: "Task") -> {ScheduleOrder}:
         """

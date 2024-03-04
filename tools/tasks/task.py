@@ -41,7 +41,7 @@ class Task:
         assert all([step.task is None for step in steps])
         for step in self.steps:
             step.task = self
-
+    """
     def __str__(self):
         # The default method to print tasks if we want to print a lot of them.
         return f'Task "{self.name}"'
@@ -56,7 +56,7 @@ class Task:
         return f'Task "{self.name}", {self.state}, requires {self.min_thread_count} threads, ' \
                f'is at step {human_readable_csi}/{len(self.steps)}, ' \
                f'and must come after tasks: {dependencies}'
-
+    """
     def on_start(self, list_nodes: List[Tuple["Node", int]], current_time: float):
         """
         Reserves computation resources and initiates the TaskStep sequence.

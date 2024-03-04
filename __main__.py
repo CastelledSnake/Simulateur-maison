@@ -1,7 +1,7 @@
 import numpy as np
 from random import Random
 from matplotlib import pyplot as plt
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List
 
 from colorama import Style, Fore, Back
@@ -9,13 +9,12 @@ from colorama import Style, Fore, Back
 from simulation.model import Model
 from simulation.trace_generator import trace_generator
 from simulation.files_generator import files_generator
-from simulation.trace import TaskSchedulingTrace
 from tools.node import Node
 from tools.schedulers.fifo_scheduler import NaiveScheduler
 from tools.schedulers.io_aware_scheduler import IOAwareScheduler
+from tools.schedulers.io_aware_scheduler_cut import IOAwareSchedulerCut
 from tools.storage.hdd_storage_tier import HDD
 from tools.storage.ssd_storage_tier import SSD
-from tools.tasks.io_task_step import IOTaskStep
 
 """ Métriques à ressortir :
 Par tâche :
@@ -107,6 +106,30 @@ def ed2p(delay: List[float], energy: List[float]):
     return energy[-1] * delay[-1] ** 2
 
 
+def linear_race(tested: float, limit: float, k: int, n: int):
+    """
+    Returns True iff the tested value over the limit value is out of boundaries, according to an affine function.
+    :param tested: A value to place as numerator.
+    :param limit: A value to place as denominator.
+    :param k: A value associated with the variable in an affine equation.
+    :param n: A value associated with the multiplicative coefficient in an affine equation.
+    :return: True iff the tested value over the limit value is out of boundaries, according to an affine function.
+    """
+    return tested/limit >= 2 - k/(n+1)
+
+
+def exponential_race(tested: float, limit: float, k: int, n: int):
+    """
+        Returns True iff the tested value over the limit value is out of boundaries, according to an exponential function.
+        :param tested: A value to place as numerator.
+        :param limit: A value to place as denominator.
+        :param k: A value associated with the variable in an exponential equation.
+        :param n: A value associated with the multiplicative coefficient in an exponential equation.
+        :return: True iff the tested value over the limit value is out of boundaries, according to an exponential function.
+        """
+    return tested/limit >= 1 + np.exp(-1/(n+1-k))
+
+
 if __name__ == "__main__":
 
     #########################
@@ -190,10 +213,14 @@ if __name__ == "__main__":
 
     scoring_function = edp
     metrics_naive: List = []
-    metrics_aware: List = []
-    timelapses_naive: List[float] = []
-    timelapses_aware: List[float] = []
-    seeds = range(10)
+    metrics_aware_normal: List = []
+    metrics_aware_linear: List = []
+    metrics_aware_exponential: List = []
+    timelapses_naive: List[timedelta] = []
+    timelapses_aware_normal: List[timedelta] = []
+    timelapses_aware_linear: List[timedelta] = []
+    timelapses_aware_exponential: List[timedelta] = []
+    seeds = range(1)
     for seed in seeds:
         ####################
         # Trace generation #
@@ -204,12 +231,24 @@ if __name__ == "__main__":
                                           mean_task_size=10,
                                           files=files,
                                           rng=Random(seed))
-        trace_for_aware = trace_generator(list_nodes=nodes,
-                                          list_storage=storage,
-                                          sample_size=42,
-                                          mean_task_size=10,
-                                          files=files,
-                                          rng=Random(seed))
+        trace_for_aware_normal = trace_generator(list_nodes=nodes,
+                                                 list_storage=storage,
+                                                 sample_size=42,
+                                                 mean_task_size=10,
+                                                 files=files,
+                                                 rng=Random(seed))
+        trace_for_aware_linear = trace_generator(list_nodes=nodes,
+                                                 list_storage=storage,
+                                                 sample_size=42,
+                                                 mean_task_size=10,
+                                                 files=files,
+                                                 rng=Random(seed))
+        trace_for_aware_exponential = trace_generator(list_nodes=nodes,
+                                                      list_storage=storage,
+                                                      sample_size=42,
+                                                      mean_task_size=10,
+                                                      files=files,
+                                                      rng=Random(seed))
         # print("Trace:\n  -" + "\n  -".join(
         #    [f'At timestamp {timestamp}: {repr(task)}' for task, timestamp in trace.tasks_ts]) + "\n")
 
@@ -223,11 +262,21 @@ if __name__ == "__main__":
                                 ssds=[ssd],
                                 list_files=list(files),
                                 tasks_trace=trace_for_naive)
-        model_for_aware = Model(nodes=nodes,
-                                hdds=[hdd],
-                                ssds=[ssd],
-                                list_files=list(files),
-                                tasks_trace=trace_for_aware)
+        model_for_aware_normal = Model(nodes=nodes,
+                                       hdds=[hdd],
+                                       ssds=[ssd],
+                                       list_files=list(files),
+                                       tasks_trace=trace_for_aware_normal)
+        model_for_aware_linear = Model(nodes=nodes,
+                                       hdds=[hdd],
+                                       ssds=[ssd],
+                                       list_files=list(files),
+                                       tasks_trace=trace_for_aware_linear)
+        model_for_aware_exponential = Model(nodes=nodes,
+                                            hdds=[hdd],
+                                            ssds=[ssd],
+                                            list_files=list(files),
+                                            tasks_trace=trace_for_aware_exponential)
 
         ########################
         # Scheduler generation #
@@ -238,8 +287,20 @@ if __name__ == "__main__":
         # For now, schedulers don't care about randomness.
 
         # Create the schedulers
-        naive_scheduler = NaiveScheduler("NaiveScheduler_seed=" + str(seed), model_for_naive)
-        aware_scheduler = IOAwareScheduler("IOAwareScheduler_v1.0_seed=" + str(seed), model_for_aware, scoring_function)
+        naive_scheduler = NaiveScheduler(name="NaiveScheduler_seed=" + str(seed),
+                                         model=model_for_naive,
+                                         scoring_function=delay_scoring)
+        aware_normal_scheduler = IOAwareScheduler(name="IOAwareScheduler_Normal_v2.0_seed=" + str(seed),
+                                                  model=model_for_aware_normal,
+                                                  scoring_function=scoring_function)
+        aware_linear_scheduler = IOAwareSchedulerCut(name="IOAwareSchedulerLinear_v2.0_seed=" + str(seed),
+                                                     model=model_for_aware_linear,
+                                                     scoring_function=scoring_function,
+                                                     boundaries_function=linear_race)
+        aware_exponential_scheduler = IOAwareSchedulerCut(name="IOAwareSchedulerExponential_v2.0_seed=" + str(seed),
+                                                          model=model_for_aware_exponential,
+                                                          scoring_function=scoring_function,
+                                                          boundaries_function=exponential_race)
 
         ########################
         # Simulation execution #
@@ -248,39 +309,80 @@ if __name__ == "__main__":
         # Run the simulation
         t0 = datetime.now()  # The time for formatted record folder name.
         # A previous version was using the syntax '''%Y-%m-%d_à_%H-%M'-%S"''' for the date format.
-        times_naive, energies_naive = model_for_naive.simulate(
-            record_folder=f"enregistrements_automatiques_lol/{naive_scheduler.name}/résultats_du_"
-                          + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
-            scheduler=naive_scheduler)
+        #times_naive, energies_naive = model_for_naive.simulate(
+            #record_folder=f"enregistrements_automatiques/{naive_scheduler.name}/résultats_du_"
+            #              + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
+            #scheduler=naive_scheduler)
         t1 = datetime.now()
-        times_aware, energies_aware = model_for_aware.simulate(
-            record_folder=f"enregistrements_automatiques_lol/{aware_scheduler.name}/résultats_du_"
-                          + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
-            scheduler=aware_scheduler)
+        #times_aware_normal, energies_aware_normal = model_for_aware_normal.simulate(
+        #    record_folder=f"enregistrements_automatiques/{aware_normal_scheduler.name}/résultats_du_"
+        #                  + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
+        #    scheduler=aware_normal_scheduler)
         t2 = datetime.now()
+        times_aware_linear, energies_aware_linear = model_for_aware_linear.simulate(
+            record_folder=f"enregistrements_automatiques/{aware_linear_scheduler.name}/résultats_du_"
+                          + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
+            scheduler=aware_linear_scheduler)
+        t3 = datetime.now()
+        times_aware_exponential, energies_aware_exponential = model_for_aware_exponential.simulate(
+            record_folder=f"enregistrements_automatiques/{aware_exponential_scheduler.name}/résultats_du_"
+                          + t0.strftime('''%Y-%m-%d_à_%H-%M-%S'''),
+            scheduler=aware_exponential_scheduler)
+        t4 = datetime.now()
 
         metrics_naive.append(scoring_function(times_naive, energies_naive))
-        metrics_aware.append(scoring_function(times_aware, energies_aware))
+        metrics_aware_normal.append(scoring_function(times_aware_normal, energies_aware_normal))
+        metrics_aware_linear.append(scoring_function(times_aware_linear, energies_aware_linear))
+        metrics_aware_exponential.append(scoring_function(times_aware_exponential, energies_aware_exponential))
         timelapses_naive.append(t1 - t0)
-        timelapses_aware.append(t2 - t1)
+        timelapses_aware_normal.append(t2 - t1)
+        timelapses_aware_linear.append(t3 - t2)
+        timelapses_aware_exponential.append(t4 - t3)
 
         ##########################
         # Final graph generation #
         ##########################
         # time_energy_power_graph_generation(times, energies)
 
-    positive, negative = 0, 0
+    positive_normal, negative_normal, positive_linear, negative_linear, positive_exponential, negative_exponential = 0, 0, 0, 0, 0, 0
+    time_normal, time_linear, time_exponential = 0, 0, 0
     for k in range(len(metrics_naive)):
-        if metrics_naive[k] > metrics_aware[k]:
-            positive += 1
+        # Check if the aware (normal) scheduler produced a better result than the naive scheduler
+        if metrics_naive[k] > metrics_aware_normal[k]:
+            positive_normal += 1
         else:
-            negative += 1
+            negative_normal += 1
+        # Check if the linear scheduler produced a better result than the normal scheduler
+        if metrics_aware_normal[k] > metrics_aware_linear[k]:
+            positive_linear += 1
+        else:
+            negative_linear += 1
+        # Check if the exponential scheduler produced a better result than the normal scheduler
+        if metrics_aware_normal[k] > metrics_aware_exponential[k]:
+            positive_exponential += 1
+        else:
+            negative_exponential += 1
 
-    print(f"IOAwareScheduler was better in {positive}/{len(seeds)}, and worst or equal in {negative}/{len(seeds)}.")
-    print(Fore.RED + f"Naive VS Aware\n    Naive VS Aware" + Style.RESET_ALL)
+        # Check if the aware (normal) scheduler was faster than the naive scheduler
+        if timelapses_naive[k] > timelapses_aware_normal[k]:
+            time_normal += 1
+        # Check if the linear scheduler was faster than the normal scheduler
+        if timelapses_aware_normal[k] > timelapses_aware_linear[k]:
+            time_linear += 1
+        # Check if the exponential scheduler was faster than the normal scheduler
+        if timelapses_aware_normal[k] > timelapses_aware_exponential[k]:
+            time_exponential += 1
+
+    print(f"IOAwareSchedulerNormal was better than FIFO in {positive_normal}/{len(seeds)}, and worst or equal in {negative_normal}/{len(seeds)}.")
+    print(f"    IOAwareSchedulerNormal was faster than FIFO in {time_normal}/{len(seeds)}.")
+    print(f"IOAwareSchedulerLinear was better than Normal in {positive_linear}/{len(seeds)}, and worst or equal in {negative_linear}/{len(seeds)}.")
+    print(f"    IOAwareSchedulerLinear was faster than Normal in {time_linear}/{len(seeds)}.")
+    print(f"IOAwareSchedulerExponential was better than Normal in {positive_exponential}/{len(seeds)}, and worst or equal in {negative_exponential}/{len(seeds)}.")
+    print(f"    IOAwareSchedulerExponential was faster than Normal in {time_exponential}/{len(seeds)}.")
+    print(Fore.RED + f"Naive VS Aware VS Linear VS Exponential\n    Naive VS Aware VS Linear VS Exponential" + Style.RESET_ALL)
     for k in range(len(seeds)):
-        print(f"{metrics_naive[k]} VS {metrics_aware[k]}")
-        print(f"    {timelapses_naive[k]} VS {timelapses_aware[k]}")
+        print(f"{metrics_naive[k]} VS {metrics_aware_normal[k]} VS {metrics_aware_linear[k]} VS {metrics_aware_exponential[k]}")
+        print(f"    {timelapses_naive[k]} VS {timelapses_aware_normal[k]} VS {timelapses_aware_linear[k]} VS {timelapses_aware_exponential[k]}")
 
 
     # TODO : Ensemble de quelques tâches simples pour test des politiques d'ordonnancement.

@@ -1,6 +1,6 @@
 from _csv import writer
 from math import inf
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple
 from os import makedirs
 
 from colorama import Style, Fore, Back
@@ -221,7 +221,7 @@ class Model:
                     remaining.append(task_t[0])
             if remaining:
                 print(Fore.RED + f"Remaining tasks : {remaining}" + Style.RESET_ALL)
-                raise ValueError(f"Simulation has ended but some tasks are not finished.")
+                raise ValueError(f"Simulation has ended but tasks {remaining} are not finished.")
             next_event = NextEvent({Event.SIMULATION_TERMINAISON}, None, self.time[-1], None)
         self.next_event = next_event
 
@@ -461,17 +461,34 @@ class Model:
             self.save_physics(output)
         self.event += 1
 
+    def all_tasks_launched_and_finished(self, scheduler):
+        """
+        Asserts that all tasks have been launched and finished.
+        :param scheduler: the scheduler that has been used for the simulation.
+        :return: None
+        """
+        if type(scheduler).__name__ == "NaiveScheduler" and scheduler.queue:
+            raise AssertionError(Fore.BLACK + Back.RED
+                                 + f"Simulation ended without to execute all tasks. Tasks remaining : "
+                                   f"{list(map(str, scheduler.queue))}" + Style.RESET_ALL)
+        remaining: List[Task] = []
+        for task_t in self.tasks_trace.tasks_ts:
+            if task_t[0].state != State.FINISHED:
+                remaining.append(task_t[0])
+        if remaining:
+            raise AssertionError(Fore.BLACK + Back.RED
+                                 + f"Simulation ended without to finish all tasks. Tasks not ended : "
+                                   f"{list(map(str, remaining))}" + Style.RESET_ALL)
+
     def simulate(self, record_folder: str = "", scheduler=None):
         """
-        Run the simulation until all tasks are completed.
+        The basic simulation function : Run the simulation until all tasks are completed.
         :param record_folder: the record folder for the simulation's metrics. If None, no save is performed.
         :param scheduler: The Scheduler that this simulation will use. If None, the model is 'light', which means
         this simulation is called by a Scheduler in order to get data on what's next.
         :return: Time, energy: the lists of times isolated for the simulation and the energy consumed at these moments.
         """
         # Initialising variables, and asserting there are some Tasks to execute.
-        # TODO : Quand une light_sim se déclenche avec simulate, la ligne suivante la démarre à t=0, pas très cohérent,
-        #  mais pas bloquant.
         self.next_event: NextEvent = NextEvent(events={Event.SIMULATION_START},
                                                task=None,
                                                time=0.,
@@ -489,17 +506,85 @@ class Model:
             self.simulation_step(record_folder, scheduler)
 
         # Some assertion to be sure all model's Tasks have been launched and finished.
-        if type(scheduler).__name__ == "NaiveScheduler" and scheduler.queue:
-            raise AssertionError(Fore.BLACK + Back.RED
-                                 + f"Simulation ended without to execute all tasks. Tasks remaining : "
-                                   f"{list(map(str, scheduler.queue))}" + Style.RESET_ALL)
-        # Printing info about non-finished tasks, if any.
-        remaining: List[Task] = []
-        for task_t in self.tasks_trace.tasks_ts:
-            if task_t[0].state != State.FINISHED:
-                remaining.append(task_t[0])
-        if remaining:
-            raise AssertionError(Fore.BLACK + Back.RED
-                                 + f"Simulation ended without to finish all tasks. Tasks not ended : "
-                                   f"{list(map(str, remaining))}" + Style.RESET_ALL)
+        self.all_tasks_launched_and_finished(scheduler)
+        return self.time, self.energy
+
+    def simulate_task_endings(self, record_folder: str = "", scheduler=None)\
+            -> Tuple[Dict[Task, float], Dict[Task, float]]:
+        """
+        Run the simulation until all tasks are completed and returns only the metrics concerning the task endings.
+        :param record_folder: the record folder for the simulation's metrics. If None, no save is performed.
+        :param scheduler: The Scheduler that this simulation will use. If None, the model is 'light', which means
+        this simulation is called by a Scheduler in order to get data on what's next.
+        :return: Two dictionaries, the first containing the time of each task ending,
+        the second containing the energy for each task ending
+        """
+        # Initialising variables, and asserting there are some Tasks to execute.
+        task_times = {}
+        task_energies = {}
+        self.next_event: NextEvent = NextEvent(events={Event.SIMULATION_START},
+                                               task=None,
+                                               time=0.,
+                                               order=None)
+        if record_folder != "":
+            print(Fore.RED + f"RECORD FOLDER : {record_folder}" + Style.RESET_ALL)
+            self.initiate_folders(record_folder)
+        if not self.tasks_trace.tasks_ts:
+            print(Fore.GREEN + repr(self.next_event) + Style.RESET_ALL)
+            print(Fore.WHITE + "No task to execute." + Style.RESET_ALL)
+            return {None: 0}, {None: 0}
+
+        # Simulation loop : while there are activities to perform, simulation walks to its next event.
+        while self.next_event.events != {Event.SIMULATION_TERMINAISON}:
+            self.simulation_step(record_folder, scheduler)
+            if Event.TASK_END in self.next_event.events:
+                task_times[self.next_event.task] = self.time[-1]
+                task_energies[self.next_event.task] = self.energy[-1]
+
+        # Some assertion to be sure all model's Tasks have been launched and finished.
+        self.all_tasks_launched_and_finished(scheduler)
+        return task_times, task_energies
+
+    def simulate_within_boundaries(self, boundaries_function, limits: Tuple[Dict[Task, float], Dict[Task, float]],
+                                   energy_tolerance: float, record_folder: str = "", scheduler=None):
+        """
+        Run the simulation until all tasks are completed, or if the metrics go out of the indicated boundaries.
+        :param boundaries_function: The function that will determine the boundaries the simulation should not overpass.
+        :param limits: The limits the simulation should not overpass.
+        :param energy_tolerance: The energy at which the simulation is considered as unreliable.
+        :param record_folder: the record folder for the simulation's metrics. If None, no save is performed.
+        :param scheduler: The Scheduler that this simulation will use. If None, the model is 'light', which means
+        this simulation is called by a Scheduler in order to get data on what's next.
+        :return: Time, energy: the lists of times isolated for the simulation and the energy consumed at these moments.
+        """
+        # Initialising variables, and asserting there are some Tasks to execute.
+        local_task_times = {}
+        local_task_energies = {}
+        self.next_event: NextEvent = NextEvent(events={Event.SIMULATION_START},
+                                               task=None,
+                                               time=0.,
+                                               order=None)
+        if record_folder != "":
+            print(Fore.RED + f"RECORD FOLDER : {record_folder}" + Style.RESET_ALL)
+            self.initiate_folders(record_folder)
+        if not self.tasks_trace.tasks_ts:
+            print(Fore.GREEN + repr(self.next_event) + Style.RESET_ALL)
+            print(Fore.WHITE + "No task to execute." + Style.RESET_ALL)
+            return [0], [0]
+
+        # Simulation loop : while there are activities to perform, simulation walks to its next event.
+        while self.next_event.events != {Event.SIMULATION_TERMINAISON}:
+            self.simulation_step(record_folder, scheduler)
+            if self.energy[-1] > energy_tolerance:
+                # If the simulation goes out of the boundaries, we propose that it is no longer reliable to test it.
+                return [inf], [inf]
+            elif Event.TASK_END in self.next_event.events:
+                local_task_times[self.next_event.task] = self.time[-1]
+                local_task_energies[self.next_event.task] = self.energy[-1]
+                if boundaries_function(local_task_times, local_task_energies):
+                    # If the simulation goes out of the boundaries, we propose that it is no longer reliable to test it.
+                    return [inf], [inf]
+
+        # Some assertion to be sure all model's Tasks have been launched and finished.
+        self.all_tasks_launched_and_finished(scheduler)
         return self.time, self.energy
